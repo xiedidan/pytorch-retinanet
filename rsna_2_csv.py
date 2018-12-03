@@ -16,9 +16,12 @@ import SimpleITK as sitk
 # constants
 RSNA_LABEL_FILE = 'stage_1_train_labels.csv'
 RSNA_CLASS_FILE = 'stage_1_detailed_class_info.csv'
-CLASS_MAPPING = {
+GLOBAL_CLASS_MAPPING = {
     'No Lung Opacity / Not Normal': 0,
     'Lung Opacity': 1
+}
+CLASS_MAPPING = {
+    'Lung Opacity': 0
 }
 IMAGE_WIDTH = 1024
 IMAGE_HEIGHT = 1024
@@ -47,7 +50,7 @@ def convert_jpeg(filename, patient_id, output_path):
             img_array[0]
         )
 
-def convert(filename, sample_list, anno_df, class_df, root_path):
+def convert(filename, sample_list, anno_df, class_df, root_path, classification_flag):
     lines = []
     
     print('Export {}...'.format(filename))
@@ -73,15 +76,19 @@ def convert(filename, sample_list, anno_df, class_df, root_path):
                 # write an empty row
                 line = '{},,,,,\n'.format(jpg_path)
             elif class_name == 'No Lung Opacity / Not Normal':
-                # write a whole image annotation
-                line = '{},{},{},{},{},{}\n'.format(
-                    jpg_path,
-                    0,
-                    0,
-                    IMAGE_WIDTH,
-                    IMAGE_HEIGHT,
-                    class_name
-                )
+                if classification_flag:
+                    # write a whole image annotation
+                    line = '{},{},{},{},{},{}\n'.format(
+                        jpg_path,
+                        0,
+                        0,
+                        IMAGE_WIDTH,
+                        IMAGE_HEIGHT,
+                        class_name
+                    )
+                else:
+                    # write an empty line
+                    line = '{},,,,,\n'.format(jpg_path)
             else: # Lung Opacity
                 # convert coords
                 a_cn = [
@@ -136,6 +143,7 @@ def pick_randomly(root, src_path, dest_path, count):
 # argparser
 parser = argparse.ArgumentParser(description='RSNA dataset convertor (to CSV dataset)')
 parser.add_argument('--root', default='./rsna-pneumonia-detection-challenge/', help='dataset root path')
+parser.add_argument('--tag', default='rsna', help='output subpath')
 parser.add_argument('--fold', default=4, type=int, help='sub-sets of k-fold for training, set 1 to disable k-fold')
 parser.add_argument('--val', default=1000, type=int, help='samples for validation')
 parser.add_argument('--eval', default=1000, type=int, help='samples for local evaluation')
@@ -144,6 +152,9 @@ parser.add_argument('--classification', default=False, action='store_true', help
 flags = parser.parse_args()
 
 if __name__ == '__main__':
+    if not os.path.isdir('./{}'.format(flags.tag)):
+        os.mkdir('./{}'.format(flags.tag))
+
     anno_path = os.path.join(flags.root, RSNA_LABEL_FILE)
     class_path = os.path.join(flags.root, RSNA_CLASS_FILE)
 
@@ -181,11 +192,12 @@ if __name__ == '__main__':
         sample_list = random.sample(train_list, subset_size)
 
         convert(
-            'rsna-train-{}.csv'.format(i),
+            os.path.join('{}'.format(flags.tag), 'rsna-train-{}.csv'.format(i)),
             sample_list,
             anno_df,
             class_df,
-            train_path
+            train_path,
+            flags.classification
         )
 
     # val
@@ -194,11 +206,12 @@ if __name__ == '__main__':
         val_list = [filename.split('.')[0] for filename in val_list]
 
         convert(
-            'rsna-val.csv',
+            os.path.join('{}'.format(flags.tag), 'rsna-val.csv'),
             val_list,
             anno_df,
             class_df,
-            val_path
+            val_path,
+            flags.classification
         )
 
     # eval
@@ -207,14 +220,15 @@ if __name__ == '__main__':
         eval_list = [filename.split('.')[0] for filename in eval_list]
 
         convert(
-            'rsna-eval.csv',
+            os.path.join('{}'.format(flags.tag), 'rsna-eval.csv'),
             eval_list,
             anno_df,
             class_df,
-            eval_path
+            eval_path,
+            flags.classification
         )
         
     # class mapping
-    with open('./rsna-class-mapping.csv', 'w') as file:
+    with open(os.path.join('./{}'.format(flags.tag), 'rsna-class-mapping.csv'), 'w') as file:
         for key in CLASS_MAPPING.keys():
             file.write('{},{}\n'.format(key, CLASS_MAPPING[key]))
