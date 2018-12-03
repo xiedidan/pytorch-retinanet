@@ -46,35 +46,36 @@ class FocalLoss(nn.Module):
             bbox_annotation = annotations[j, :, :]
             bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
 
-            if bbox_annotation.shape[0] == 0:
-                regression_losses.append(torch.tensor(0).float().cuda())
-                classification_losses.append(torch.tensor(0).float().cuda())
-
-                continue
-
             classification = torch.clamp(classification, 1e-4, 1.0 - 1e-4)
 
-            IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4]) # num_anchors x num_annotations
+            # compute loss for empty inputs
+            if bbox_annotation.shape[0] == 0:
+                targets = torch.zeros(classification.shape) # all negative targets
+                targets = targets.cuda()
 
-            IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
+                num_positive_anchors = 0
+            else:
+                IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4]) # num_anchors x num_annotations
 
-            #import pdb
-            #pdb.set_trace()
+                IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
 
-            # compute the loss for classification
-            targets = torch.ones(classification.shape) * -1
-            targets = targets.cuda()
+                #import pdb
+                #pdb.set_trace()
 
-            targets[torch.lt(IoU_max, 0.4), :] = 0
+                # compute the loss for classification
+                targets = torch.ones(classification.shape) * -1
+                targets = targets.cuda()
 
-            positive_indices = torch.ge(IoU_max, 0.5)
+                targets[torch.lt(IoU_max, 0.4), :] = 0
 
-            num_positive_anchors = positive_indices.sum()
+                positive_indices = torch.ge(IoU_max, 0.5)
 
-            assigned_annotations = bbox_annotation[IoU_argmax, :]
+                num_positive_anchors = positive_indices.sum()
 
-            targets[positive_indices, :] = 0
-            targets[positive_indices, assigned_annotations[positive_indices, 4].long()] = 1
+                assigned_annotations = bbox_annotation[IoU_argmax, :]
+
+                targets[positive_indices, :] = 0
+                targets[positive_indices, assigned_annotations[positive_indices, 4].long()] = 1
 
             alpha_factor = torch.ones(targets.shape).cuda() * alpha
 

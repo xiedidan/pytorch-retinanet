@@ -28,6 +28,7 @@ from torch.utils.data import Dataset, DataLoader
 import coco_eval
 import csv_eval
 from log import *
+from history import *
 
 assert torch.__version__.split('.')[1] == '4'
 
@@ -50,8 +51,6 @@ def main(args=None):
 	parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=50)
 	parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
 
-	parser.add_argument('--size', help='Image size', type=int, default=512)
-
 	parser.add_argument('--log_prefix', default='train', help='log file path = "./log/{}-{}.log".format(log_prefix, now)')
 	parser.add_argument('--log_level', default=logging.DEBUG, type=int, help='log level')
 
@@ -72,6 +71,9 @@ def main(args=None):
 		LOG_SIZE,
 		parser.log_level
 	)
+
+	# setup history
+	history = History()
 
 	# Create the data loaders
 	if parser.dataset == 'coco':
@@ -174,11 +176,17 @@ def main(args=None):
 
 					optimizer.step()
 
-					loss_hist.append(float(loss))
+					loss_hist.append(float(loss.item()))
 
-					epoch_loss.append(float(loss))
+					epoch_loss.append(float(loss.item()))
 
-					logger.info('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(epoch_num, iter_num, float(classification_loss), float(regression_loss), np.mean(loss_hist)))
+					logger.info('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(
+						epoch_num,
+						iter_num,
+						float(classification_loss.item),
+						float(regression_loss.item),
+						np.mean(loss_hist)
+					))
 					
 					del classification_loss
 					del regression_loss
@@ -188,6 +196,8 @@ def main(args=None):
 					continue
 				finally:
 					pbar.update(1)
+
+			history.train_loss.append(np.mean(epoch_loss))
 
 		if parser.dataset == 'coco':
 
@@ -201,16 +211,20 @@ def main(args=None):
 
 			mAP = csv_eval.evaluate(dataset_val, retinanet)
 
-			logger.info(mAP)
+			# rsna specific
+			history.val_accu.append(mAP[2][0])
 
+			logger.info(mAP)
 		
 		scheduler.step(np.mean(epoch_loss))	
 
-		torch.save(retinanet.module, '{}_retinanet_{}.pt'.format(parser.dataset, epoch_num))
+		torch.save(retinanet.module, '{}_retinanet_{}.pth'.format(parser.dataset, epoch_num))
+
+		history.save()
 
 	retinanet.eval()
 
-	torch.save(retinanet, 'model_final.pt'.format(epoch_num))
+	torch.save(retinanet, 'model_final.pth'.format(epoch_num))
 
 if __name__ == '__main__':
  main()

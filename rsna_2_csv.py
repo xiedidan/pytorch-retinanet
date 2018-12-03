@@ -140,6 +140,7 @@ parser.add_argument('--fold', default=4, type=int, help='sub-sets of k-fold for 
 parser.add_argument('--val', default=1000, type=int, help='samples for validation')
 parser.add_argument('--eval', default=1000, type=int, help='samples for local evaluation')
 parser.add_argument('--splitted', default=False, action='store_true', help='whether val / test are already splitted')
+parser.add_argument('--classification', default=False, action='store_true', help='whether global classification is added to network')
 flags = parser.parse_args()
 
 if __name__ == '__main__':
