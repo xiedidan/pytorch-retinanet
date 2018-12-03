@@ -53,7 +53,8 @@ class FocalLoss(nn.Module):
                 targets = torch.zeros(classification.shape) # all negative targets
                 targets = targets.cuda()
 
-                num_positive_anchors = 0
+                num_positive_anchors = torch.tensor(0).cuda()
+                positive_indices = torch.tensor(0).cuda()
             else:
                 IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4]) # num_anchors x num_annotations
 

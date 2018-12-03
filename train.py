@@ -183,8 +183,8 @@ def main(args=None):
 					logger.info('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(
 						epoch_num,
 						iter_num,
-						float(classification_loss.item),
-						float(regression_loss.item),
+						float(classification_loss.item()),
+						float(regression_loss.item()),
 						np.mean(loss_hist)
 					))
 					
