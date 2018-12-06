@@ -5,7 +5,7 @@ import json
 import os
 
 import torch
-
+from metric import map_iou
 
 
 def compute_overlap(a, b):
@@ -236,3 +236,120 @@ def evaluate(
     
     return average_precisions
 
+def to_pt(bbox):
+    pt = [
+        bbox[0],
+        bbox[1],
+        bbox[2] - bbox[0],
+        bbox[3] - bbox[1]
+    ]
+
+    return pt
+
+def evaluate_rsna(
+    generator,
+    retinanet,
+    score_threshold=0.05,
+    max_detections=100,
+    save_path=None
+):
+    """ Evaluate a given dataset using a given retinanet.
+    # Arguments
+        generator       : The generator that represents the dataset to evaluate.
+        retinanet           : The retinanet to evaluate.
+        iou_threshold   : The threshold used to consider when a detection is positive or negative.
+        score_threshold : The score confidence threshold to use for detections.
+        max_detections  : The maximum number of detections to use per image.
+        save_path       : The path to save images with visualized detections to.
+    # Returns
+        A dict mapping class names to mAP scores.
+    """
+
+    # gather all detections and annotations
+    all_detections     = _get_detections(generator, retinanet, score_threshold=score_threshold, max_detections=max_detections, save_path=save_path)
+    all_annotations    = _get_annotations(generator)
+
+    average_precisions = []
+
+    for label in range(generator.num_classes()):
+        for i in range(len(generator)):
+            detections           = all_detections[i][label]
+            annotations          = all_annotations[i][label]
+
+            boxes_true = [annot[:4] for annot in annotations]
+            boxes_true = [to_pt(box) for box in boxes_true]
+            boxes_true = np.array(boxes_true)
+
+            boxes_pred = [det[:4] for det in detections]
+            boxes_pred = [to_pt(box) for box in boxes_pred]
+            boxes_pred = np.array(boxes_pred)
+
+            scores = [det[4] for det in detections]
+            scores = np.array(scores)
+
+            mAP = map_iou(boxes_true, boxes_pred, scores)
+
+            if mAP is not None:
+                average_precisions.append(mAP)
+    
+    ap = np.array(average_precisions).mean()
+
+    print('mAP: {}\n'.format(ap))
+    
+    return ap
+
+def export(
+    generator,
+    retinanet,
+    iou_threshold=0.5,
+    score_threshold=0.05,
+    max_detections=100,
+    image_path=None,
+    csv_path=None
+):
+    """ Export a given dataset using a given retinanet.
+    # Arguments
+        generator       : The generator that represents the dataset to evaluate.
+        retinanet           : The retinanet to evaluate.
+        iou_threshold   : The threshold used to consider when a detection is positive or negative.
+        score_threshold : The score confidence threshold to use for detections.
+        max_detections  : The maximum number of detections to use per image.
+        save_path       : The path to save detections.
+    # Returns
+        A dict mapping class names to mAP scores.
+    """
+
+    # gather all detections
+
+    all_detections     = _get_detections(
+        generator,
+        retinanet,
+        score_threshold=score_threshold,
+        max_detections=max_detections,
+        save_path=image_path
+    )
+
+    with open(csv_path, 'w') as file:
+        file.write("patientId,PredictionString\n")
+
+        for i in range(len(generator)):
+            patientId = os.path.basename(generator.image_names[i]).split('.')[0]
+            csv_line = '{},'.format(patientId)
+
+            detections = all_detections[i][0] # specific to rsna
+            for d in detections:
+                # d is a_cn + score
+                w = d[2] - d[0]
+                h = d[3] - d[1]
+
+                d_element = '{} {} {} {} {}'.format(
+                    d[4],
+                    int(d[0]),
+                    int(d[1]),
+                    int(w),
+                    int(h)
+                )
+                csv_line = '{} {}'.format(csv_line, d_element)
+
+            csv_line = '{}\n'.format(csv_line)
+            file.write(csv_line)

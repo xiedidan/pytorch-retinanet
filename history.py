@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 import argparse
 
@@ -5,7 +6,7 @@ import torch
 
 from plot import *
 
-history_prefix = './history_{}.pth'
+history_prefix = 'history_{}.pth'
 
 class History:
     def __init__(self):
@@ -20,7 +21,7 @@ class History:
         self.train_loss = history['train_loss']
         self.val_accu = history['val_accu']
 
-    def save(self):
+    def save(self, subpath):
         history = {
             'train_loss': self.train_loss,
             'val_accu': self.val_accu
@@ -28,7 +29,7 @@ class History:
 
         torch.save(
             history,
-            history_prefix.format(self.now)
+            os.path.join('./', subpath, history_prefix.format(self.now))
         )
 
     def plot(self):

@@ -56,6 +56,9 @@ def main(args=None):
 
 	parser = parser.parse_args(args)
 
+	if not os.path.isdir(os.path.join('./', parser.log_prefix)):
+		os.mkdir(os.path.join('./', parser.log_prefix))
+
 	# setup logger
 	if not os.path.isdir(LOG_PATH):
 		os.mkdir(LOG_PATH)
@@ -104,11 +107,11 @@ def main(args=None):
 	else:
 		raise ValueError('Dataset type not understood (must be csv or coco), exiting.')
 
-	sampler = AspectRatioBasedSampler(dataset_train, batch_size=2, drop_last=False)
+	sampler = AspectRatioBasedSampler(dataset_train, batch_size=8, drop_last=False)
 	dataloader_train = DataLoader(dataset_train, num_workers=3, collate_fn=collater, batch_sampler=sampler)
 
 	if dataset_val is not None:
-		sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=1, drop_last=False)
+		sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=8, drop_last=False)
 		dataloader_val = DataLoader(dataset_val, num_workers=3, collate_fn=collater, batch_sampler=sampler_val)
 
 	# Create the model
@@ -212,19 +215,19 @@ def main(args=None):
 			mAP = csv_eval.evaluate(dataset_val, retinanet)
 
 			# rsna specific
-			history.val_accu.append(mAP[2][0])
+			history.val_accu.append(mAP[0][0])
 
 			logger.info(mAP)
 		
 		scheduler.step(np.mean(epoch_loss))	
 
-		torch.save(retinanet.module, '{}_retinanet_{}.pth'.format(parser.dataset, epoch_num))
+		torch.save(retinanet.module, os.path.join('./', parser.log_prefix, 'retinanet_{}.pth'.format(epoch_num)))
 
-		history.save()
+		history.save(parser.log_prefix)
 
 	retinanet.eval()
 
-	torch.save(retinanet, 'model_final.pth'.format(epoch_num))
+	torch.save(retinanet, os.path.join('./', parser.log_prefix, 'final_model_{}.pth'.format(epoch_num)))
 
 if __name__ == '__main__':
- main()
+	main()

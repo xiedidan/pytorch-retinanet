@@ -119,6 +119,32 @@ def convert(filename, sample_list, anno_df, class_df, root_path, classification_
         for line in lines:
             file.write(line)
 
+def convert_test(filename, sample_list, anno_df, class_df, root_path, classification_flag):
+    lines = []
+    
+    print('Export {}...'.format(filename))
+
+    for patient_id in tqdm(sample_list):
+        image_path = os.path.join(root_path, '{}.dcm'.format(patient_id))
+        jpg_path = os.path.join('{}_jpg'.format(root_path), '{}.jpg'.format(patient_id))
+
+        # convert to jpeg
+        convert_jpeg(
+            image_path,
+            patient_id,
+            '{}_jpg'.format(root_path)
+        )
+
+        line = '{},,,,,\n'.format(jpg_path)
+        lines.append(line)
+
+    # write csv
+    csv_path = os.path.join('./', filename)
+
+    with open(csv_path, 'w') as file:
+        for line in lines:
+            file.write(line)
+
 def pick_randomly(root, src_path, dest_path, count):
     # mk output dir
     sample_path = os.path.join(root, dest_path)
@@ -145,7 +171,6 @@ parser = argparse.ArgumentParser(description='RSNA dataset convertor (to CSV dat
 parser.add_argument('--root', default='./rsna-pneumonia-detection-challenge/', help='dataset root path')
 parser.add_argument('--tag', default='rsna', help='output subpath')
 parser.add_argument('--fold', default=4, type=int, help='sub-sets of k-fold for training, set 1 to disable k-fold')
-parser.add_argument('--val', default=1000, type=int, help='samples for validation')
 parser.add_argument('--eval', default=1000, type=int, help='samples for local evaluation')
 parser.add_argument('--splitted', default=False, action='store_true', help='whether val / test are already splitted')
 parser.add_argument('--classification', default=False, action='store_true', help='whether global classification is added to network')
@@ -161,15 +186,8 @@ if __name__ == '__main__':
     anno_df = pd.read_csv(anno_path)
     class_df = pd.read_csv(class_path)
 
-    if not flags.splitted:
-        # split val / eval
-        val_list = pick_randomly(
-            flags.root,
-            'train/',
-            'val/',
-            flags.val
-        )
-
+    if (not flags.splitted) and (flags.eval > 0):
+        # split eval
         eval_list = pick_randomly(
             flags.root,
             'train/',
@@ -177,40 +195,47 @@ if __name__ == '__main__':
             flags.eval
         )
 
-    # re-list train / val / eval images
+    # re-list train - val / eval / test images
     train_path = os.path.join(flags.root, 'train')
-    val_path = os.path.join(flags.root, 'val')
     eval_path = os.path.join(flags.root, 'eval')
+    test_path = os.path.join(flags.root, 'test')
 
     train_list = os.listdir(train_path)
     train_list = [filename.split('.')[0] for filename in train_list]
 
-    # k-fold split for training
-    subset_size = math.ceil(len(train_list) / flags.fold)
+    # k-fold split for cross validation
+    subset_size = math.floor(len(train_list) / flags.fold)
+
+    random_list = random.sample(range(len(train_list)), len(train_list))
+    random_indice_lists = [random_list[i * subset_size : (i + 1) * subset_size] for i in range(flags.fold)]
+    val_sample_lists = [train_list[random_indices] for random_indices in random_indice_lists]
+
+    train_sample_lists = []
+    for i in range(flags.fold):
+        train_sample_list = []
+
+        for j in range(flags.fold):
+            if j != i:
+                train_sample_list.extend(val_sample_lists[j])
+
+        train_sample_lists.append(train_sample_list)
 
     for i in range(flags.fold):
-        sample_list = random.sample(train_list, subset_size)
-
         convert(
             os.path.join('{}'.format(flags.tag), 'rsna-train-{}.csv'.format(i)),
-            sample_list,
+            train_sample_lists[i],
             anno_df,
             class_df,
             train_path,
             flags.classification
         )
 
-    # val
-    if os.path.exists(val_path):
-        val_list = os.listdir(val_path)
-        val_list = [filename.split('.')[0] for filename in val_list]
-
         convert(
-            os.path.join('{}'.format(flags.tag), 'rsna-val.csv'),
-            val_list,
+            os.path.join('{}'.format(flags.tag), 'rsna-val-{}.csv'.format(i)),
+            val_sample_lists[i],
             anno_df,
             class_df,
-            val_path,
+            train_path,
             flags.classification
         )
 
@@ -225,6 +250,20 @@ if __name__ == '__main__':
             anno_df,
             class_df,
             eval_path,
+            flags.classification
+        )
+
+    # test
+    if os.path.exists(test_path):
+        test_list = os.listdir(test_path)
+        test_list = [filename.split('.')[0] for filename in test_list]
+
+        convert_test(
+            os.path.join('{}'.format(flags.tag), 'rsna-test.csv'),
+            test_list,
+            anno_df,
+            class_df,
+            test_path,
             flags.classification
         )
         
