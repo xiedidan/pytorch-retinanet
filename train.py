@@ -38,7 +38,7 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'train-val'
 LOG_PATH = './log'
 
-MAX_DETECTIONS = 4
+MAX_DETECTIONS = 3
 
 def main(args=None):
 
@@ -109,11 +109,11 @@ def main(args=None):
 	else:
 		raise ValueError('Dataset type not understood (must be csv or coco), exiting.')
 
-	sampler = AspectRatioBasedSampler(dataset_train, batch_size=8, drop_last=False)
+	sampler = AspectRatioBasedSampler(dataset_train, batch_size=4, drop_last=False)
 	dataloader_train = DataLoader(dataset_train, num_workers=3, collate_fn=collater, batch_sampler=sampler)
 
 	if dataset_val is not None:
-		sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=8, drop_last=False)
+		sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=4, drop_last=False)
 		dataloader_val = DataLoader(dataset_val, num_workers=3, collate_fn=collater, batch_sampler=sampler_val)
 
 	# Create the model
@@ -156,6 +156,8 @@ def main(args=None):
 		retinanet.train()
 		retinanet.module.freeze_bn()
 		
+		epoch_classification_loss = []
+		epoch_regression_loss = []
 		epoch_loss = []
 		
 		batch_size = len(dataloader_train)
@@ -183,6 +185,8 @@ def main(args=None):
 
 					loss_hist.append(float(loss.item()))
 
+					epoch_classification_loss.append(float(classification_loss.item()))
+					epoch_regression_loss.append(float(regression_loss.item()))
 					epoch_loss.append(float(loss.item()))
 
 					logger.info('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(
@@ -203,6 +207,8 @@ def main(args=None):
 					pbar.update(1)
 
 			history.train_loss.append(np.mean(epoch_loss))
+			history.train_reg_loss.append(np.mean(epoch_regression_loss))
+			history.train_cls_loss.append(np.mean(epoch_classification_loss))
 
 		if parser.dataset == 'coco':
 
@@ -228,7 +234,7 @@ def main(args=None):
 		
 		scheduler.step(np.mean(epoch_loss))	
 
-		torch.save(retinanet.module, os.path.join('./', parser.log_prefix, 'retinanet_{}.pth'.format(epoch_num)))
+		torch.save(retinanet.state_dict(), os.path.join('./', parser.log_prefix, 'retinanet_{}.pth'.format(epoch_num)))
 
 		history.save(parser.log_prefix)
 
