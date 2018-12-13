@@ -37,7 +37,7 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'eval'
 LOG_PATH = './log'
 
-MAX_DETECTIONS = 3
+MAX_DETECTIONS = 4
 
 '''
 # scan from 0.3 to 0.8
@@ -74,6 +74,8 @@ def main(args=None):
 	parser.add_argument('--epochs', help='Number of epochs', type=int, default=0)
 	parser.add_argument('--checkpoint', help='Path to checkpoint')
 
+	parser.add_argument('--ensemble', action='store_true', default=False, help='Whether to do ensemble')
+	parser.add_argument('--ensemble_file', default='./ensemble_list.txt', help='checkpoint list file for ensemble')
 
 	parser.add_argument('--log_prefix', default='eval', help='log file path = "./log/{}-{}.log".format(log_prefix, now)')
 	parser.add_argument('--log_level', default=logging.DEBUG, type=int, help='log level')
@@ -135,7 +137,7 @@ def main(args=None):
 	elif parser.depth == 152:
 		retinanet = model.resnet152(num_classes=dataset_val.num_classes(), pretrained=True)
 	else:
-		raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')		
+		raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')
 
 	use_gpu = True
 
@@ -145,37 +147,67 @@ def main(args=None):
 	retinanet = torch.nn.DataParallel(retinanet).cuda()
 	retinanet.training = False
     
-	if parser.epochs > 0:
-		for epoch in range(parser.epochs):
-			logger.info('Epoch {}:'.format(epoch))
+	if parser.ensemble:
+		# read ensemble list file
+		with open(parser.ensemble_file, 'r') as ensemble_file:
+			ensemble_list = ensemble_file.readlines()
+			ensemble_list = [filename.strip() for filename in ensemble_list]
+		
+		logger.info('Ensembling {} checkpoints:'.format(len(ensemble_list)))
+		for filename in ensemble_list:
+			logger.info('{}'.format(filename))
 
-			model_file = '{}_{}.pth'.format(parser.checkpoint, epoch)
-			print('Evaluating model: {}'.format(model_file))
+		print('Ensembling {} checkpoints...'.format(len(ensemble_list)))
 
-			retinanet.module = torch.load(model_file)
+		retinanet = model.resnet101_ensemble(
+			num_classes=dataset_val.num_classes(),
+			checkpoint_list=ensemble_list
+		)
 
-			mAP = csv_eval.evaluate(dataset_val, retinanet)
-			logger.info(mAP)
+		mAP = csv_eval.evaluate_rsna(
+			dataset_val,
+			retinanet,
+			score_threshold=0.25,
+			max_detections=MAX_DETECTIONS
+		)
+		logger.info(mAP)
 	else:
-		retinanet.module = torch.load(parser.checkpoint)
+		if parser.epochs > 0:
+			for epoch in range(parser.epochs):
+				logger.info('Epoch {}:'.format(epoch))
 
-		for i in range(IOU_STEPS):
-			iou = IOU_MIN + i * (IOU_SCALE / IOU_STEPS)
+				model_file = '{}_{}.pth'.format(parser.checkpoint, epoch)
+				print('Evaluating model: {}'.format(model_file))
 
-			for j in range(SCORE_STEPS):
-				score = SCORE_MIN + j * (SCORE_SCALE / SCORE_STEPS)
-
-				print('iou_threshold: {}, score_threshold: {}'.format(iou, score))
+				retinanet.module = torch.load(model_file)
 
 				mAP = csv_eval.evaluate_rsna(
 					dataset_val,
 					retinanet,
-					score_threshold=score,
-					max_detections=MAX_DETECTIONS,
+					score_threshold=0.2,
+					max_detections=MAX_DETECTIONS
 				)
-
-				logger.info('iou_threshold: {}, score_threshold: {}'.format(iou, score))
 				logger.info(mAP)
+		else:
+			retinanet.module = torch.load(parser.checkpoint)
+
+			for i in range(IOU_STEPS):
+				iou = IOU_MIN + i * (IOU_SCALE / IOU_STEPS)
+
+				for j in range(SCORE_STEPS):
+					score = SCORE_MIN + j * (SCORE_SCALE / SCORE_STEPS)
+
+					print('iou_threshold: {}, score_threshold: {}'.format(iou, score))
+
+					mAP = csv_eval.evaluate_rsna(
+						dataset_val,
+						retinanet,
+						score_threshold=score,
+						max_detections=MAX_DETECTIONS
+					)
+
+					logger.info('iou_threshold: {}, score_threshold: {}'.format(iou, score))
+					logger.info(mAP)
 
 if __name__ == '__main__':
 	main()

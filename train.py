@@ -38,6 +38,8 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'train-val'
 LOG_PATH = './log'
 
+MAX_DETECTIONS = 4
+
 def main(args=None):
 
 	parser     = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
@@ -212,10 +214,15 @@ def main(args=None):
 
 			print('Evaluating dataset')
 
-			mAP = csv_eval.evaluate(dataset_val, retinanet)
+			mAP = csv_eval.evaluate_rsna(
+				dataset_val,
+				retinanet,
+				score_threshold=0.2,
+				max_detections=MAX_DETECTIONS
+			)
 
 			# rsna specific
-			history.val_accu.append(mAP[0][0])
+			history.val_accu.append(mAP)
 
 			logger.info(mAP)
 		

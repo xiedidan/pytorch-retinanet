@@ -305,7 +305,8 @@ def export(
     score_threshold=0.05,
     max_detections=100,
     image_path=None,
-    csv_path=None
+    csv_path=None,
+    scale=0.9
 ):
     """ Export a given dataset using a given retinanet.
     # Arguments
@@ -338,14 +339,18 @@ def export(
 
             detections = all_detections[i][0] # specific to rsna
             for d in detections:
-                # d is a_cn + score
-                w = d[2] - d[0]
-                h = d[3] - d[1]
+                # d is a_pt + score
+                left = d[0] + (1 - scale) * (d[2] - d[0]) / 2
+                upper = d[1] + (1 - scale) * (d[3] - d[1]) / 2
+
+                w = (d[2] - d[0]) * scale
+                h = (d[3] - d[1]) * scale
+                
 
                 d_element = '{} {} {} {} {}'.format(
                     d[4],
-                    int(d[0]),
-                    int(d[1]),
+                    int(left),
+                    int(upper),
                     int(w),
                     int(h)
                 )

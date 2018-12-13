@@ -37,7 +37,7 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'eval'
 LOG_PATH = './log'
 
-SCORE_MIN = 0.25
+SCORE_MIN = 0.2
 MAX_DETECTIONS = 3
 
 def main(args=None):
@@ -51,6 +51,9 @@ def main(args=None):
 
 	parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=50)
 	parser.add_argument('--checkpoint', help='Path to checkpoint')
+
+	parser.add_argument('--ensemble', action='store_true', default=False, help='Whether to do ensemble')
+	parser.add_argument('--ensemble_file', default='./ensemble_list.txt', help='checkpoint list file for ensemble')
 
 	parser.add_argument('--log_prefix', default='eval', help='log file path = "./log/{}-{}.log".format(log_prefix, now)')
 	parser.add_argument('--log_level', default=logging.DEBUG, type=int, help='log level')
@@ -118,18 +121,36 @@ def main(args=None):
 
 	if use_gpu:
 		retinanet = retinanet.cuda()
-	
-	retinanet = torch.nn.DataParallel(retinanet).cuda()
-	retinanet.training = False
-    
-	retinanet.module = torch.load(parser.checkpoint)
+
+	if parser.ensemble:
+		# read ensemble list file
+		with open(parser.ensemble_file, 'r') as ensemble_file:
+			ensemble_list = ensemble_file.readlines()
+			ensemble_list = [filename.strip() for filename in ensemble_list]
+		
+		logger.info('Ensembling {} checkpoints:'.format(len(ensemble_list)))
+		for filename in ensemble_list:
+			logger.info('{}'.format(filename))
+
+		print('Ensembling {} checkpoints...'.format(len(ensemble_list)))
+
+		retinanet = model.resnet101_ensemble(
+			num_classes=dataset_val.num_classes(),
+			checkpoint_list=ensemble_list
+		)
+	else:
+		retinanet = torch.nn.DataParallel(retinanet).cuda()
+		retinanet.training = False
+		
+		retinanet.module = torch.load(parser.checkpoint)
 
 	csv_eval.export(
 		dataset_val,
 		retinanet,
 		score_threshold=SCORE_MIN,
 		max_detections=MAX_DETECTIONS,
-		csv_path='submission_{}.csv'.format(now.strftime('%Y-%m-%d_%H:%M:%S'))
+		csv_path='submission_{}.csv'.format(now.strftime('%Y-%m-%d_%H:%M:%S')),
+		scale=0.9
 	)
 
 if __name__ == '__main__':

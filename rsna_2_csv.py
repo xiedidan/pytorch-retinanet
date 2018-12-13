@@ -14,8 +14,8 @@ import pandas as pd
 import SimpleITK as sitk
 
 # constants
-RSNA_LABEL_FILE = 'stage_1_train_labels.csv'
-RSNA_CLASS_FILE = 'stage_1_detailed_class_info.csv'
+RSNA_LABEL_FILE = 'stage_2_train_labels.csv'
+RSNA_CLASS_FILE = 'stage_2_detailed_class_info.csv'
 GLOBAL_CLASS_MAPPING = {
     'No Lung Opacity / Not Normal': 0,
     'Lung Opacity': 1
@@ -208,7 +208,11 @@ if __name__ == '__main__':
 
     random_list = random.sample(range(len(train_list)), len(train_list))
     random_indice_lists = [random_list[i * subset_size : (i + 1) * subset_size] for i in range(flags.fold)]
-    val_sample_lists = [train_list[random_indices] for random_indices in random_indice_lists]
+
+    val_sample_lists = []
+    for random_indices in random_indice_lists:
+        val_sample_list = [train_list[index] for index in random_indices]
+        val_sample_lists.append(val_sample_list)
 
     train_sample_lists = []
     for i in range(flags.fold):

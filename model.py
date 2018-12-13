@@ -9,7 +9,7 @@ import losses
 from lib.nms.pth_nms import pth_nms
 
 def nms(dets, thresh):
-    "Dispatch to either CPU or GPU NMS implementations.\
+    """Dispatch to either CPU or GPU NMS implementations.\
     Accept dets as tensor"""
     return pth_nms(dets, thresh)
 
@@ -232,7 +232,6 @@ class ResNet(nn.Module):
                 layer.eval()
 
     def forward(self, inputs):
-
         if self.training:
             img_batch, annotations = inputs
         else:
@@ -284,7 +283,7 @@ class ResNet_Part(nn.Module):
 
     def __init__(self, num_classes, block, layers):
         self.inplanes = 64
-        super(ResNet, self).__init__()
+        super(ResNet_Part, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
@@ -375,32 +374,91 @@ class ResNet_Part(nn.Module):
         regression = torch.cat([self.regressionModel(feature) for feature in features], dim=1)
 
         classification = torch.cat([self.classificationModel(feature) for feature in features], dim=1)
-
         anchors = self.anchors(img_batch)
 
         return [regression, classification, anchors]
 
 class ResNet_Ensemble(nn.Module):
     def __init__(self, models):
+        super(ResNet_Ensemble, self).__init__()
         self.models = models
 
-    def forward(self, inputs):
-        pass
+        for model in self.models:
+            model.eval()
 
-def resnet101_ensemble(num_classes, num_parts, pretrained=False, **kwargs):
+        self.regressBoxes = BBoxTransform()
+        self.clipBoxes = ClipBoxes()
+
+    def forward(self, inputs):
+        model_count = len(self.models)
+        img_batch = inputs
+
+        results = [model(img_batch) for model in self.models]
+
+        regressions = [result[0] for result in results]
+        classifications = torch.stack([result[1] for result in results]) # [MODEL_COUNT, BATCH_SIZE, NUM_ANCHOR, CLASSES]
+        anchors_list = [result[2] for result in results]
+
+        transformed_anchors_list = torch.stack([self.regressBoxes(anchors_list[i], regressions[i]) for i in range(model_count)])
+
+        # ensemble results - avg
+        classifications = classifications.permute(1, 2, 3, 0)
+        classification = classifications.mean(dim=-1)
+
+        transformed_anchors_list = transformed_anchors_list.permute(1, 2, 3, 0)
+        transformed_anchors = transformed_anchors_list.mean(dim=-1)
+
+        # ok, go on
+        transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
+
+        scores = torch.max(classification, dim=2, keepdim=True)[0]
+
+        scores_over_thresh = (scores>0.05)[0, :, 0]
+
+        if scores_over_thresh.sum() == 0:
+            # no boxes to NMS, just return
+            return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
+
+        classification = classification[:, scores_over_thresh, :]
+        transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
+        scores = scores[:, scores_over_thresh, :]
+
+        anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.5)
+
+        nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
+
+        return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
+
+def resnet101_ensemble(num_classes, checkpoint_list, **kwargs):
     """Constructs a ResNet-101 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     models = []
 
-    for i in range(num_parts):
+    for checkpoint in checkpoint_list:
+        print(checkpoint)
         model = ResNet_Part(num_classes, Bottleneck, [3, 4, 23, 3], **kwargs)
 
-        if pretrained:
-            model.load_state_dict(model_zoo.load_url(model_urls['resnet101'], model_dir='.'), strict=False)
+        model = model.cuda()
+        model = torch.nn.DataParallel(model).cuda()
+        model.training = False
+
+        # transfer ResNet parameters to ResNet_Part
+        original_model = ResNet(num_classes, Bottleneck, [3, 4, 23, 3], **kwargs)
+
+        original_model = model.cuda()
+        original_model = torch.nn.DataParallel(model).cuda()
+        original_model.training = False
+
+        original_model.module = torch.load(checkpoint)
+        state_dict = original_model.state_dict()
+
+        model.load_state_dict(state_dict)
 
         models.append(model)
+
+    return ResNet_Ensemble(models)
 
 def resnet18(num_classes, pretrained=False, **kwargs):
     """Constructs a ResNet-18 model.

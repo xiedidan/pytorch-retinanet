@@ -1,0 +1,7 @@
+/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold0/retinanet_5.pth
+/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold0/retinanet_7.pth
+/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold1/retinanet_5.pth
+/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold2/retinanet_7.pth
+/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold2/retinanet_9.pth
+/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold3/retinanet_6.pth
+/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold3/retinanet_7.pth
