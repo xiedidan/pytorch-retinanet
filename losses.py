@@ -45,10 +45,14 @@ class FocalLoss(nn.Module):
         ids = global_classes.view(-1, 1)
         class_mask.scatter_(1, ids.detach(), 1.)
 
+        # alpha for Lung Opacity (2), 1 - alpha for others
+        alpha_factor = torch.ones(global_classes.shape).cuda() * alpha
+        alpha_factor = torch.where(torch.eq(global_classes, 2.), alpha_factor, 1. - alpha_factor)
+
         probs = (P * class_mask).sum(1).reshape(-1, 1)
         log_p = probs.log()
 
-        global_loss = -alpha * torch.pow((1 - probs), gamma) * log_p
+        global_loss = -alpha_factor * torch.pow((1 - probs), gamma) * log_p
         global_avg_loss = global_loss.mean()
 
         for j in range(batch_size):
