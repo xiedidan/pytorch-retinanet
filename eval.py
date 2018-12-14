@@ -37,7 +37,9 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'eval'
 LOG_PATH = './log'
 
-MAX_DETECTIONS = 4
+# usually 0.25 + 3 gives best local mAP
+SCORE_THRESHOLD = 0.25
+MAX_DETECTIONS = 3
 
 '''
 # scan from 0.3 to 0.8
@@ -167,7 +169,7 @@ def main(args=None):
 		mAP = csv_eval.evaluate_rsna(
 			dataset_val,
 			retinanet,
-			score_threshold=0.25,
+			score_threshold=SCORE_THRESHOLD,
 			max_detections=MAX_DETECTIONS
 		)
 		logger.info(mAP)
@@ -179,17 +181,17 @@ def main(args=None):
 				model_file = '{}_{}.pth'.format(parser.checkpoint, epoch)
 				print('Evaluating model: {}'.format(model_file))
 
-				retinanet.module = torch.load(model_file)
+				retinanet.load_state_dict(torch.load(model_file), False)
 
 				mAP = csv_eval.evaluate_rsna(
 					dataset_val,
 					retinanet,
-					score_threshold=0.2,
+					score_threshold=SCORE_THRESHOLD,
 					max_detections=MAX_DETECTIONS
 				)
 				logger.info(mAP)
 		else:
-			retinanet.module = torch.load(parser.checkpoint)
+			retinanet.load_state_dict(torch.load(parser.checkpoint), False)
 
 			for i in range(IOU_STEPS):
 				iou = IOU_MIN + i * (IOU_SCALE / IOU_STEPS)

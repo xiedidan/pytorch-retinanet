@@ -37,7 +37,7 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'eval'
 LOG_PATH = './log'
 
-SCORE_MIN = 0.2
+SCORE_MIN = 0.25
 MAX_DETECTIONS = 3
 
 def main(args=None):
@@ -142,7 +142,7 @@ def main(args=None):
 		retinanet = torch.nn.DataParallel(retinanet).cuda()
 		retinanet.training = False
 		
-		retinanet.module = torch.load(parser.checkpoint)
+		retinanet.load_state_dict(torch.load(parser.checkpoint), False)
 
 	csv_eval.export(
 		dataset_val,

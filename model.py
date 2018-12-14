@@ -8,6 +8,9 @@ from anchors import Anchors
 import losses
 from lib.nms.pth_nms import pth_nms
 
+CLASSIFIER_FEATURES = 4096
+CLASSIFIER_NUM_CLASSES = 3
+
 def nms(dets, thresh):
     """Dispatch to either CPU or GPU NMS implementations.\
     Accept dets as tensor"""
@@ -218,6 +221,16 @@ class ResNet(nn.Module):
 
         self.freeze_bn()
 
+        self.classifier = nn.Sequential(
+            nn.Linear(fpn_sizes[3], CLASSIFIER_FEATURES),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(CLASSIFIER_FEATURES, CLASSIFIER_FEATURES),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(CLASSIFIER_FEATURES, CLASSIFIER_NUM_CLASSES)
+        )
+
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
@@ -243,10 +256,10 @@ class ResNet(nn.Module):
 
     def forward(self, inputs):
         if self.training:
-            img_batch, annotations = inputs
+            img_batch, annotations, global_classes = inputs
         else:
             img_batch = inputs
-            
+
         x = self.conv1(img_batch)
         x = self.bn1(x)
         x = self.relu(x)
@@ -266,7 +279,18 @@ class ResNet(nn.Module):
         anchors = self.anchors(img_batch)
 
         if self.training:
-            return self.focalLoss(classification, regression, anchors, annotations)
+            global_feature = nn.functional.avg_pool2d(x4, x4.shape[-1])
+            global_feature = global_feature.reshape(img_batch.shape[0], -1)
+            global_classification = self.classifier(global_feature)
+            
+            return self.focalLoss(
+                classification,
+                regression,
+                anchors,
+                annotations,
+                global_classification,
+                global_classes
+            )
         else:
             transformed_anchors = self.regressBoxes(anchors, regression)
             transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
@@ -454,17 +478,7 @@ def resnet101_ensemble(num_classes, checkpoint_list, **kwargs):
         model = torch.nn.DataParallel(model).cuda()
         model.training = False
 
-        # transfer ResNet parameters to ResNet_Part
-        original_model = ResNet(num_classes, Bottleneck, [3, 4, 23, 3], **kwargs)
-
-        original_model = model.cuda()
-        original_model = torch.nn.DataParallel(model).cuda()
-        original_model.training = False
-
-        original_model.module = torch.load(checkpoint)
-        state_dict = original_model.state_dict()
-
-        model.load_state_dict(state_dict)
+        model.load_state_dict(torch.load(checkpoint), False)
 
         models.append(model)
 

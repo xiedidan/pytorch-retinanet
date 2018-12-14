@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import random
 import csv
+import pandas as pd
 
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
@@ -126,7 +127,7 @@ class CocoDataset(Dataset):
 class CSVDataset(Dataset):
     """CSV dataset."""
 
-    def __init__(self, train_file, class_list, transform=None):
+    def __init__(self, train_file, class_list, global_class_file=None, global_classes=None, transform=None):
         """
         Args:
             train_file (string): CSV file with training annotations
@@ -155,6 +156,12 @@ class CSVDataset(Dataset):
         except ValueError as e:
             raise_from(ValueError('invalid CSV annotations file: {}: {}'.format(self.train_file, e)), None)
         self.image_names = list(self.image_data.keys())
+
+        self.global_flag = False
+        if global_class_file is not None:
+            self.global_flag = True
+            self.class_df = self._read_global_class(global_class_file)
+            self.global_classes = global_classes
 
     def _parse(self, value, function, fmt):
         """
@@ -209,7 +216,31 @@ class CSVDataset(Dataset):
         if self.transform:
             sample = self.transform(sample)
 
+        if self.global_flag:
+            global_class = self.load_global_class(idx)
+        else:
+            global_class = 0
+        sample['cls'] = global_class
+
         return sample
+
+    def load_global_class(self, image_index):
+        image_path = self.image_names[image_index]
+        image_file = os.path.basename(image_path)
+        patient_id = image_file.split('.')[0]
+
+        class_rows = self.class_df[self.class_df['patientId'] == patient_id]
+        class_row = class_rows.iloc[0]
+        class_name = class_row['class']
+
+        class_no = self.global_classes[class_name]
+
+        return class_no
+
+    def _read_global_class(self, class_path):
+        class_df = pd.read_csv(class_path)
+
+        return class_df
 
     def load_image(self, image_index):
         img = skimage.io.imread(self.image_names[image_index])
@@ -304,6 +335,7 @@ def collater(data):
 
     imgs = [s['img'] for s in data]
     annots = [s['annot'] for s in data]
+    global_classes = torch.tensor([s['cls'] for s in data])
     scales = [s['scale'] for s in data]
         
     widths = [int(s.shape[0]) for s in imgs]
@@ -336,7 +368,7 @@ def collater(data):
 
     padded_imgs = padded_imgs.permute(0, 3, 1, 2)
 
-    return {'img': padded_imgs, 'annot': annot_padded, 'scale': scales}
+    return {'img': padded_imgs, 'annot': annot_padded, 'cls': global_classes, 'scale': scales}
 
 class Resizer(object):
     """Convert ndarrays in sample to Tensors."""

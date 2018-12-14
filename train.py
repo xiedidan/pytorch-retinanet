@@ -38,7 +38,14 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'train-val'
 LOG_PATH = './log'
 
+SCORE_THRESHOLD = 0.25
 MAX_DETECTIONS = 3
+
+global_class_mapping = {
+	'Normal': 0,
+	'No Lung Opacity / Not Normal': 1,
+	'Lung Opacity': 2
+}
 
 def main(args=None):
 
@@ -49,6 +56,7 @@ def main(args=None):
 	parser.add_argument('--csv_train', help='Path to file containing training annotations (see readme)')
 	parser.add_argument('--csv_classes', help='Path to file containing class list (see readme)')
 	parser.add_argument('--csv_val', help='Path to file containing validation annotations (optional, see readme)')
+	parser.add_argument('--global_class', help='Path to file containing global class list (see readme)')
 
 	parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=50)
 	parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
@@ -98,7 +106,13 @@ def main(args=None):
 			raise ValueError('Must provide --csv_classes when training on CSV,')
 
 
-		dataset_train = CSVDataset(train_file=parser.csv_train, class_list=parser.csv_classes, transform=transforms.Compose([Normalizer(), Augmenter(), Resizer()]))
+		dataset_train = CSVDataset(
+			train_file=parser.csv_train,
+			class_list=parser.csv_classes,
+			global_class_file=parser.global_class,
+			global_classes=global_class_mapping,
+			transform=transforms.Compose([Normalizer(), Augmenter(), Resizer()])
+		)
 
 		if parser.csv_val is None:
 			dataset_val = None
@@ -158,6 +172,7 @@ def main(args=None):
 		
 		epoch_classification_loss = []
 		epoch_regression_loss = []
+		epoch_global_loss = []
 		epoch_loss = []
 		
 		batch_size = len(dataloader_train)
@@ -167,12 +182,13 @@ def main(args=None):
 				try:
 					optimizer.zero_grad()
 
-					classification_loss, regression_loss = retinanet([data['img'].cuda().float(), data['annot']])
+					classification_loss, regression_loss, global_loss = retinanet([data['img'].cuda().float(), data['annot'], data['cls']])
 
 					classification_loss = classification_loss.mean()
 					regression_loss = regression_loss.mean()
+					global_loss = global_loss.mean()
 
-					loss = classification_loss + regression_loss
+					loss = classification_loss + regression_loss + global_loss
 					
 					if bool(loss == 0):
 						continue
@@ -187,18 +203,21 @@ def main(args=None):
 
 					epoch_classification_loss.append(float(classification_loss.item()))
 					epoch_regression_loss.append(float(regression_loss.item()))
+					epoch_global_loss.append(float(global_loss.item()))
 					epoch_loss.append(float(loss.item()))
 
-					logger.info('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Running loss: {:1.5f}'.format(
+					logger.info('Epoch: {} | Iteration: {} | Classification loss: {:1.5f} | Regression loss: {:1.5f} | Global loss: {:1.5f} | Running loss: {:1.5f}'.format(
 						epoch_num,
 						iter_num,
 						float(classification_loss.item()),
 						float(regression_loss.item()),
+						float(global_loss.item()),
 						np.mean(loss_hist)
 					))
 					
 					del classification_loss
 					del regression_loss
+					del global_loss
 				except Exception as e:
 					print(e)
 					logger.error(e)
@@ -209,6 +228,7 @@ def main(args=None):
 			history.train_loss.append(np.mean(epoch_loss))
 			history.train_reg_loss.append(np.mean(epoch_regression_loss))
 			history.train_cls_loss.append(np.mean(epoch_classification_loss))
+			history.train_global_loss.append(np.mean(epoch_global_loss))
 
 		if parser.dataset == 'coco':
 
@@ -223,7 +243,7 @@ def main(args=None):
 			mAP = csv_eval.evaluate_rsna(
 				dataset_val,
 				retinanet,
-				score_threshold=0.2,
+				score_threshold=SCORE_THRESHOLD,
 				max_detections=MAX_DETECTIONS
 			)
 

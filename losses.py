@@ -24,7 +24,7 @@ def calc_iou(a, b):
 class FocalLoss(nn.Module):
     #def __init__(self):
 
-    def forward(self, classifications, regressions, anchors, annotations):
+    def forward(self, classifications, regressions, anchors, annotations, global_classifications, global_classes):
         alpha = 0.25
         gamma = 2.0
         batch_size = classifications.shape[0]
@@ -37,6 +37,19 @@ class FocalLoss(nn.Module):
         anchor_heights = anchor[:, 3] - anchor[:, 1]
         anchor_ctr_x   = anchor[:, 0] + 0.5 * anchor_widths
         anchor_ctr_y   = anchor[:, 1] + 0.5 * anchor_heights
+
+        # compute global classification focal loss
+        P = nn.functional.softmax(global_classifications)
+
+        class_mask = torch.zeros(global_classifications.shape).to(device=global_classifications.device)
+        ids = global_classes.view(-1, 1)
+        class_mask.scatter_(1, ids.detach(), 1.)
+
+        probs = (P * class_mask).sum(1).reshape(-1, 1)
+        log_p = probs.log()
+
+        global_loss = -alpha * torch.pow((1 - probs), gamma) * log_p
+        global_avg_loss = global_loss.mean()
 
         for j in range(batch_size):
 
@@ -136,6 +149,6 @@ class FocalLoss(nn.Module):
             else:
                 regression_losses.append(torch.tensor(0).float().cuda())
 
-        return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
+        return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True), global_avg_loss
 
     
