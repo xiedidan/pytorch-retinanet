@@ -11,6 +11,8 @@ from lib.nms.pth_nms import pth_nms
 CLASSIFIER_FEATURES = 4096
 CLASSIFIER_NUM_CLASSES = 3
 
+SCORE_THRESHOLD = 0.01
+
 def nms(dets, thresh):
     """Dispatch to either CPU or GPU NMS implementations.\
     Accept dets as tensor"""
@@ -282,7 +284,7 @@ class ResNet(nn.Module):
             global_feature = nn.functional.avg_pool2d(x4, x4.shape[-1])
             global_feature = global_feature.reshape(img_batch.shape[0], -1)
             global_classification = self.classifier(global_feature)
-            
+
             return self.focalLoss(
                 classification,
                 regression,
@@ -296,8 +298,7 @@ class ResNet(nn.Module):
             transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
 
             scores = torch.max(classification, dim=2, keepdim=True)[0]
-
-            scores_over_thresh = (scores>0.05)[0, :, 0]
+            scores_over_thresh = (scores > SCORE_THRESHOLD)[0, :, 0]
 
             if scores_over_thresh.sum() == 0:
                 # no boxes to NMS, just return
@@ -307,7 +308,7 @@ class ResNet(nn.Module):
             transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
             scores = scores[:, scores_over_thresh, :]
 
-            anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.5)
+            anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.)
 
             nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
 
@@ -435,7 +436,7 @@ class ResNet_Ensemble(nn.Module):
 
         transformed_anchors_list = torch.stack([self.regressBoxes(anchors_list[i], regressions[i]) for i in range(model_count)])
 
-        # ensemble results - avg
+        # ensemble results
         classifications = classifications.permute(1, 2, 3, 0)
         classification = classifications.mean(dim=-1)
 
@@ -447,7 +448,7 @@ class ResNet_Ensemble(nn.Module):
 
         scores = torch.max(classification, dim=2, keepdim=True)[0]
 
-        scores_over_thresh = (scores>0.05)[0, :, 0]
+        scores_over_thresh = (scores > SCORE_THRESHOLD)[0, :, 0]
 
         if scores_over_thresh.sum() == 0:
             # no boxes to NMS, just return

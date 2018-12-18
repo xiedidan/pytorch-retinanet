@@ -7,6 +7,8 @@ import os
 import torch
 from metric import map_iou
 
+from tqdm import tqdm
+
 
 def compute_overlap(a, b):
     """
@@ -141,10 +143,83 @@ def _get_annotations(generator):
         for label in range(generator.num_classes()):
             all_annotations[i][label] = annotations[annotations[:, 4] == label, :4].copy()
 
-        print('{}/{}'.format(i + 1, len(generator)), end='\r')
+        # print('{}/{}'.format(i + 1, len(generator)), end='\r')
 
     return all_annotations
 
+def _get_predictions(dataset, retinanet):
+    scores_list = []
+    labels_list = []
+    boxes_list = []
+
+    print('Get network redictions...')
+
+    retinanet.eval()
+    
+    with torch.no_grad():
+        with tqdm(total=len(dataset)) as pbar:
+            for index in range(len(dataset)):
+                data = dataset[index]
+                scale = data['scale']
+
+                # run network
+                scores, labels, boxes = retinanet(data['img'].permute(2, 0, 1).cuda().float().unsqueeze(dim=0))
+                scores = scores.cpu().numpy()
+                labels = labels.cpu().numpy()
+                boxes  = boxes.cpu().numpy()
+
+                # correct boxes for image scale
+                boxes /= scale
+
+                scores_list.append(scores)
+                labels_list.append(labels)
+                boxes_list.append(boxes)
+
+                pbar.update(1)
+
+    return scores_list, labels_list, boxes_list
+
+def _get_scan_detections(
+    scores_list,
+    labels_list,
+    boxes_list,
+    num_classes=1,
+    score_thresholds=[0.05],
+    max_detections=100,
+    save_path=None
+):
+    detections_list = []
+
+    for score_threshold in score_thresholds:
+        all_detections = [[None for i in range(num_classes)] for j in range(len(scores_list))]
+
+        for index, (scores, labels, boxes) in enumerate(zip(scores_list, labels_list, boxes_list)):
+            # select indices which have a score above the threshold
+            indices = np.where(scores > score_threshold)[0]
+            if indices.shape[0] > 0:
+                # select those scores
+                scores = scores[indices]
+
+                # find the order with which to sort the scores
+                scores_sort = np.argsort(-scores)[:max_detections]
+
+                # select detections
+                image_boxes      = boxes[indices[scores_sort], :]
+                image_scores     = scores[scores_sort]
+                image_labels     = labels[indices[scores_sort]]
+                image_detections = np.concatenate([image_boxes, np.expand_dims(image_scores, axis=1), np.expand_dims(image_labels, axis=1)], axis=1)
+
+                # copy detections to all_detections
+                for label in range(num_classes):
+                    all_detections[index][label] = image_detections[image_detections[:, -1] == label, :-1]
+            else:
+                # copy detections to all_detections
+                for label in range(num_classes):
+                    all_detections[index][label] = np.zeros((0, 5))
+
+        detections_list.append(all_detections)
+        
+    return detections_list
 
 def evaluate(
     generator,
@@ -249,7 +324,7 @@ def to_pt(bbox):
 def evaluate_rsna(
     generator,
     retinanet,
-    score_threshold=0.05,
+    score_thresholds=[0.05],
     max_detections=100,
     save_path=None
 ):
@@ -266,42 +341,81 @@ def evaluate_rsna(
     """
 
     # gather all detections and annotations
-    all_detections     = _get_detections(generator, retinanet, score_threshold=score_threshold, max_detections=max_detections, save_path=save_path)
+    scores_list, labels_list, boxes_list = _get_predictions(generator, retinanet)
+    detections_list = _get_scan_detections(
+        scores_list,
+        labels_list,
+        boxes_list,
+        score_thresholds=score_thresholds,
+        max_detections=max_detections,
+        save_path=save_path
+    )
     all_annotations    = _get_annotations(generator)
 
-    average_precisions = []
+    ap_list = []
+    youden_list = []
+    sensitivity_list = []
+    specificity_list = []
 
-    for label in range(generator.num_classes()):
-        for i in range(len(generator)):
-            detections           = all_detections[i][label]
-            annotations          = all_annotations[i][label]
+    for all_detections in detections_list:
+        average_precisions = []
 
-            boxes_true = [annot[:4] for annot in annotations]
-            boxes_true = [to_pt(box) for box in boxes_true]
-            boxes_true = np.array(boxes_true)
+        true_positive = 0
+        positive = 0
+        true_negative = 0
+        negative = 0
 
-            boxes_pred = [det[:4] for det in detections]
-            boxes_pred = [to_pt(box) for box in boxes_pred]
-            boxes_pred = np.array(boxes_pred)
+        for label in range(generator.num_classes()):
+            for i in range(len(generator)):
+                detections           = all_detections[i][label]
+                annotations          = all_annotations[i][label]
 
-            scores = [det[4] for det in detections]
-            scores = np.array(scores)
+                boxes_true = [annot[:4] for annot in annotations]
+                boxes_true = [to_pt(box) for box in boxes_true]
+                boxes_true = np.array(boxes_true)
 
-            mAP = map_iou(boxes_true, boxes_pred, scores)
+                boxes_pred = [det[:4] for det in detections]
+                boxes_pred = [to_pt(box) for box in boxes_pred]
+                boxes_pred = np.array(boxes_pred)
 
-            if mAP is not None:
-                average_precisions.append(mAP)
+                scores = [det[4] for det in detections]
+                scores = np.array(scores)
+
+                mAP = map_iou(boxes_true, boxes_pred, scores)
+
+                if mAP is not None:
+                    average_precisions.append(mAP)
+
+                    if mAP > 0.:
+                        # hit
+                        true_positive += 1
+                        positive += 1
+                    else:
+                        if len(annotations) > 0:
+                            # miss
+                            positive += 1
+                        else:
+                            # false negative
+                            negative += 1
+                else: # mAP = None means ture negative
+                    true_negative += 1
+                    negative += 1
+        
+        ap = np.array(average_precisions).mean()
+        ap_list.append(ap)
+
+        sensitivity = true_positive / positive
+        specificity = true_negative / negative
+        youden_index = (sensitivity + specificity) - 1.
+        youden_list.append(youden_index)
+        sensitivity_list.append(sensitivity)
+        specificity_list.append(specificity)
     
-    ap = np.array(average_precisions).mean()
-
-    print('mAP: {}\n'.format(ap))
-    
-    return ap
+    return ap_list, youden_list, sensitivity_list, specificity_list
 
 def export(
     generator,
     retinanet,
-    iou_threshold=0.5,
     score_threshold=0.05,
     max_detections=100,
     image_path=None,

@@ -38,7 +38,7 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'train-val'
 LOG_PATH = './log'
 
-SCORE_THRESHOLD = 0.25
+SCORE_THRESHOLDS = [0.01, 0.03, 0.05, 0.07, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.275, 0.3, 0.325, 0.35]
 MAX_DETECTIONS = 3
 
 global_class_mapping = {
@@ -240,17 +240,42 @@ def main(args=None):
 
 			print('Evaluating dataset')
 
-			mAP = csv_eval.evaluate_rsna(
+			ap_list, youden_list, sensitivity_list, specificity_list = csv_eval.evaluate_rsna(
 				dataset_val,
 				retinanet,
-				score_threshold=SCORE_THRESHOLD,
+				score_thresholds=SCORE_THRESHOLDS,
 				max_detections=MAX_DETECTIONS
 			)
 
 			# rsna specific
-			history.val_accu.append(mAP)
+			max_ap = np.max(ap_list)
+			max_youden = np.max(youden_list)
+			max_accu_score = SCORE_THRESHOLDS[np.argmax(ap_list)]
+			max_youden_score = SCORE_THRESHOLDS[np.argmax(youden_list)]
 
-			logger.info(mAP)
+			history.val_accu.append(max_ap)
+			history.val_youden.append(max_youden)
+			history.val_accu_score.append(max_accu_score)
+			history.val_youden_score.append(max_youden_score)
+
+			logger.info(
+				'\nscores:\t\t{}\nmAPs:\t\t{}\nyouden:\t\t{}\nsensitivity:\t{}\nspecificity:\t{}\n'.format(
+					SCORE_THRESHOLDS,
+					ap_list,
+					youden_list,
+					sensitivity_list,
+					specificity_list
+				)
+			)
+
+			print(
+				'max mAP: {} @ {}, max Youden: {} @ {}'.format(
+					max_ap,
+					max_accu_score,
+					max_youden,
+					max_youden_score
+				)
+			)
 		
 		scheduler.step(np.mean(epoch_loss))	
 

@@ -171,6 +171,7 @@ parser = argparse.ArgumentParser(description='RSNA dataset convertor (to CSV dat
 parser.add_argument('--root', default='./rsna-pneumonia-detection-challenge/', help='dataset root path')
 parser.add_argument('--tag', default='rsna', help='output subpath')
 parser.add_argument('--fold', default=4, type=int, help='sub-sets of k-fold for training, set 1 to disable k-fold')
+parser.add_argument('--val', default=1000, type=int, help='samples for online validation if k-fold is disabled')
 parser.add_argument('--eval', default=1000, type=int, help='samples for local evaluation')
 parser.add_argument('--splitted', default=False, action='store_true', help='whether val / test are already splitted')
 parser.add_argument('--classification', default=False, action='store_true', help='whether global classification is added to network')
@@ -203,31 +204,58 @@ if __name__ == '__main__':
     train_list = os.listdir(train_path)
     train_list = [filename.split('.')[0] for filename in train_list]
 
-    # k-fold split for cross validation
-    subset_size = math.floor(len(train_list) / flags.fold)
+    if flags.fold > 1:
+        # k-fold split for cross validation
+        subset_size = math.floor(len(train_list) / flags.fold)
 
-    random_list = random.sample(range(len(train_list)), len(train_list))
-    random_indice_lists = [random_list[i * subset_size : (i + 1) * subset_size] for i in range(flags.fold)]
+        random_list = random.sample(range(len(train_list)), len(train_list))
+        random_indice_lists = [random_list[i * subset_size : (i + 1) * subset_size] for i in range(flags.fold)]
 
-    val_sample_lists = []
-    for random_indices in random_indice_lists:
-        val_sample_list = [train_list[index] for index in random_indices]
-        val_sample_lists.append(val_sample_list)
+        val_sample_lists = []
+        for random_indices in random_indice_lists:
+            val_sample_list = [train_list[index] for index in random_indices]
+            val_sample_lists.append(val_sample_list)
 
-    train_sample_lists = []
-    for i in range(flags.fold):
-        train_sample_list = []
+        train_sample_lists = []
+        for i in range(flags.fold):
+            train_sample_list = []
 
-        for j in range(flags.fold):
-            if j != i:
-                train_sample_list.extend(val_sample_lists[j])
+            for j in range(flags.fold):
+                if j != i:
+                    train_sample_list.extend(val_sample_lists[j])
 
-        train_sample_lists.append(train_sample_list)
+            train_sample_lists.append(train_sample_list)
 
-    for i in range(flags.fold):
+        for i in range(flags.fold):
+            convert(
+                os.path.join('{}'.format(flags.tag), 'rsna-train-{}.csv'.format(i)),
+                train_sample_lists[i],
+                anno_df,
+                class_df,
+                train_path,
+                flags.classification
+            )
+
+            convert(
+                os.path.join('{}'.format(flags.tag), 'rsna-val-{}.csv'.format(i)),
+                val_sample_lists[i],
+                anno_df,
+                class_df,
+                train_path,
+                flags.classification
+            )
+    else:
+        random_list = random.sample(range(len(train_list)), len(train_list))
+
+        val_indice_list = random_list[:flags.val]
+        train_indice_list = random_list[flags.val:]
+
+        val_sample_list = [train_list[index] for index in val_indice_list]
+        train_sample_list = [train_list[index] for index in train_indice_list]
+
         convert(
-            os.path.join('{}'.format(flags.tag), 'rsna-train-{}.csv'.format(i)),
-            train_sample_lists[i],
+            os.path.join('{}'.format(flags.tag), 'rsna-train.csv'),
+            train_sample_list,
             anno_df,
             class_df,
             train_path,
@@ -235,8 +263,8 @@ if __name__ == '__main__':
         )
 
         convert(
-            os.path.join('{}'.format(flags.tag), 'rsna-val-{}.csv'.format(i)),
-            val_sample_lists[i],
+            os.path.join('{}'.format(flags.tag), 'rsna-val.csv'),
+            val_sample_list,
             anno_df,
             class_df,
             train_path,

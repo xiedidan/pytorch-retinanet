@@ -69,4 +69,3 @@ def map_iou(boxes_true, boxes_pred, scores, thresholds = [0.4, 0.45, 0.5, 0.55, 
         map_total += m
     
     return map_total / len(thresholds)
-    

@@ -37,31 +37,9 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'eval'
 LOG_PATH = './log'
 
-# usually 0.25 + 3 gives best local mAP
-SCORE_THRESHOLD = 0.25
+# scan score thresholds
+SCORE_THRESHOLDS = [0.01, 0.03, 0.05, 0.07, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.275, 0.3, 0.325, 0.35]
 MAX_DETECTIONS = 3
-
-'''
-# scan from 0.3 to 0.8
-IOU_MIN = 0.3
-IOU_SCALE = 0.6
-IOU_STEPS = 6
-'''
-
-# scan from 0.05 to 0.55
-SCORE_MIN = 0.05
-SCORE_SCALE = 0.55
-SCORE_STEPS = 11
-
-IOU_MIN = 0.4
-IOU_SCALE = 0.0
-IOU_STEPS = 1
-
-'''
-SCORE_MIN = 0.1
-SCORE_SCALE = 0.0
-SCORE_STEPS = 1
-'''
 
 def main(args=None):
 
@@ -73,6 +51,7 @@ def main(args=None):
 	parser.add_argument('--csv_val', help='Path to file containing validation annotations (optional, see readme)')
 
 	parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=50)
+
 	parser.add_argument('--epochs', help='Number of epochs', type=int, default=0)
 	parser.add_argument('--checkpoint', help='Path to checkpoint')
 
@@ -148,68 +127,86 @@ def main(args=None):
 	
 	retinanet = torch.nn.DataParallel(retinanet).cuda()
 	retinanet.training = False
-    
-	if parser.ensemble:
-		# read ensemble list file
-		with open(parser.ensemble_file, 'r') as ensemble_file:
-			ensemble_list = ensemble_file.readlines()
-			ensemble_list = [filename.strip() for filename in ensemble_list]
-		
-		logger.info('Ensembling {} checkpoints:'.format(len(ensemble_list)))
-		for filename in ensemble_list:
-			logger.info('{}'.format(filename))
 
-		print('Ensembling {} checkpoints...'.format(len(ensemble_list)))
+	if parser.epochs > 0:
+		for epoch in range(parser.epochs):
+			logger.info('Epoch {}:'.format(epoch))
 
-		retinanet = model.resnet101_ensemble(
-			num_classes=dataset_val.num_classes(),
-			checkpoint_list=ensemble_list
-		)
+			model_file = '{}_{}.pth'.format(parser.checkpoint, epoch)
+			print('Evaluating model: {}'.format(model_file))
 
-		mAP = csv_eval.evaluate_rsna(
-			dataset_val,
-			retinanet,
-			score_threshold=SCORE_THRESHOLD,
-			max_detections=MAX_DETECTIONS
-		)
-		logger.info(mAP)
-	else:
-		if parser.epochs > 0:
-			for epoch in range(parser.epochs):
-				logger.info('Epoch {}:'.format(epoch))
+			retinanet.load_state_dict(torch.load(model_file), False)
 
-				model_file = '{}_{}.pth'.format(parser.checkpoint, epoch)
-				print('Evaluating model: {}'.format(model_file))
-
-				retinanet.load_state_dict(torch.load(model_file), False)
-
-				mAP = csv_eval.evaluate_rsna(
-					dataset_val,
-					retinanet,
-					score_threshold=SCORE_THRESHOLD,
-					max_detections=MAX_DETECTIONS
+			ap_list, youden_list, sensitivity_list, specificity_list = csv_eval.evaluate_rsna(
+				dataset_val,
+				retinanet,
+				score_thresholds=SCORE_THRESHOLDS,
+				max_detections=MAX_DETECTIONS
+			)
+			logger.info(
+				'\nscores:\t\t{}\nmAPs:\t\t{}\nyouden:\t\t{}\nsensitivity:\t{}\nspecificity:\t{}\n'.format(
+					SCORE_THRESHOLDS,
+					ap_list,
+					youden_list,
+					sensitivity_list,
+					specificity_list
 				)
-				logger.info(mAP)
+			)
+
+			print(
+				'\nscores:\t\t{}\nmAPs:\t\t{}\nyouden:\t\t{}\nsensitivity:\t{}\nspecificity:\t{}\n'.format(
+					SCORE_THRESHOLDS,
+					ap_list,
+					youden_list,
+					sensitivity_list,
+					specificity_list
+				)
+			)
+	else:
+		if parser.ensemble:
+			# read ensemble list file
+			with open(parser.ensemble_file, 'r') as ensemble_file:
+				ensemble_list = ensemble_file.readlines()
+				ensemble_list = [filename.strip() for filename in ensemble_list]
+			
+			logger.info('Ensembling {} checkpoints:'.format(len(ensemble_list)))
+			for filename in ensemble_list:
+				logger.info('{}'.format(filename))
+
+			print('Ensembling {} checkpoints...'.format(len(ensemble_list)))
+
+			retinanet = model.resnet101_ensemble(
+				num_classes=dataset_val.num_classes(),
+				checkpoint_list=ensemble_list
+			)
 		else:
 			retinanet.load_state_dict(torch.load(parser.checkpoint), False)
 
-			for i in range(IOU_STEPS):
-				iou = IOU_MIN + i * (IOU_SCALE / IOU_STEPS)
+		ap_list, youden_list, sensitivity_list, specificity_list = csv_eval.evaluate_rsna(
+			dataset_val,
+			retinanet,
+			score_thresholds=SCORE_THRESHOLDS,
+			max_detections=MAX_DETECTIONS
+		)
+		logger.info(
+			'\nscores:\t\t{}\nmAPs:\t\t{}\nyouden:\t\t{}\nsensitivity:\t{}\nspecificity:\t{}\n'.format(
+				SCORE_THRESHOLDS,
+				ap_list,
+				youden_list,
+				sensitivity_list,
+				specificity_list
+			)
+		)
 
-				for j in range(SCORE_STEPS):
-					score = SCORE_MIN + j * (SCORE_SCALE / SCORE_STEPS)
-
-					print('iou_threshold: {}, score_threshold: {}'.format(iou, score))
-
-					mAP = csv_eval.evaluate_rsna(
-						dataset_val,
-						retinanet,
-						score_threshold=score,
-						max_detections=MAX_DETECTIONS
-					)
-
-					logger.info('iou_threshold: {}, score_threshold: {}'.format(iou, score))
-					logger.info(mAP)
+		print(
+			'\nscores:\t\t{}\nmAPs:\t\t{}\nyouden:\t\t{}\nsensitivity:\t{}\nspecificity:\t{}\n'.format(
+				SCORE_THRESHOLDS,
+				ap_list,
+				youden_list,
+				sensitivity_list,
+				specificity_list
+			)
+		)
 
 if __name__ == '__main__':
 	main()

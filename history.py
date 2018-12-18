@@ -16,6 +16,9 @@ class History:
         self.train_global_loss = []
 
         self.val_accu = []
+        self.val_youden = []
+        self.val_accu_score = []
+        self.val_youden_score = []
 
         self.now = datetime.now()
 
@@ -25,9 +28,12 @@ class History:
         self.train_loss = history['train_loss']
         self.train_reg_loss = history['train_reg_loss']
         self.train_cls_loss = history['train_cls_loss']
-        # self.train_global_loss = history['train_global_loss']
+        self.train_global_loss = history['train_global_loss']
 
         self.val_accu = history['val_accu']
+        self.val_youden = history['val_youden']
+        self.val_accu_score = history['val_accu_score']
+        self.val_youden_score = history['val_youden_score']
 
     def save(self, subpath):
         history = {
@@ -35,7 +41,10 @@ class History:
             'train_reg_loss': self.train_reg_loss,
             'train_cls_loss': self.train_cls_loss,
             'train_global_loss': self.train_global_loss,
-            'val_accu': self.val_accu
+            'val_accu': self.val_accu,
+            'val_youden': self.val_youden,
+            'val_accu_score': self.val_accu_score,
+            'val_youden_score': self.val_youden_score
         }
 
         torch.save(
