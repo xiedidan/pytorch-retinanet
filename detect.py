@@ -47,8 +47,10 @@ def main(args=None):
 	parser.add_argument('--coco_path', help='Path to COCO directory')
 	parser.add_argument('--csv_classes', help='Path to file containing class list (see readme)')
 	parser.add_argument('--csv_val', help='Path to file containing validation annotations (optional, see readme)')
+	
 	parser.add_argument('--score', help='Score threshold', type=float, default=0.1)
-
+	parser.add_argument('--scale', help='Resize scale', type=float, default=0.9)
+	
 	parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=50)
 	parser.add_argument('--checkpoint', help='Path to checkpoint')
 
@@ -150,7 +152,7 @@ def main(args=None):
 		score_threshold=parser.score,
 		max_detections=MAX_DETECTIONS,
 		csv_path='submission_{}.csv'.format(now.strftime('%Y-%m-%d_%H:%M:%S')),
-		scale=0.9
+		scale=parser.scale
 	)
 
 if __name__ == '__main__':

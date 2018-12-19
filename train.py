@@ -153,7 +153,14 @@ def main(args=None):
 
 	retinanet.training = True
 
-	optimizer = optim.Adam(retinanet.parameters(), lr=1e-5)
+	# optimizer = optim.Adam(retinanet.parameters(), lr=1e-5)
+	optimizer = optim.SGD(
+		retinanet.parameters(),
+		lr=0.01,
+		momentum=0.9,
+		weight_decay=0.0001,
+		nesterov=True
+	)
 
 	scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, verbose=True)
 
