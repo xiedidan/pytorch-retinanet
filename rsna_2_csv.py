@@ -173,8 +173,7 @@ parser.add_argument('--tag', default='rsna', help='output subpath')
 parser.add_argument('--fold', default=4, type=int, help='sub-sets of k-fold for training, set 1 to disable k-fold')
 parser.add_argument('--val', default=1000, type=int, help='samples for online validation if k-fold is disabled')
 parser.add_argument('--eval', default=1000, type=int, help='samples for local evaluation')
-parser.add_argument('--splitted', default=False, action='store_true', help='whether val / test are already splitted')
-parser.add_argument('--classification', default=False, action='store_true', help='whether global classification is added to network')
+parser.add_argument('--classification', default=False, action='store_true', help='whether global classification is added to network (deprecated)')
 flags = parser.parse_args()
 
 if __name__ == '__main__':
@@ -187,29 +186,25 @@ if __name__ == '__main__':
     anno_df = pd.read_csv(anno_path)
     class_df = pd.read_csv(class_path)
 
-    if (not flags.splitted) and (flags.eval > 0):
-        # split eval
-        eval_list = pick_randomly(
-            flags.root,
-            'train/',
-            'eval/',
-            flags.eval
-        )
-
     # re-list train - val / eval / test images
     train_path = os.path.join(flags.root, 'train')
-    eval_path = os.path.join(flags.root, 'eval')
     test_path = os.path.join(flags.root, 'test')
 
     train_list = os.listdir(train_path)
     train_list = [filename.split('.')[0] for filename in train_list]
 
     if flags.fold > 1:
-        # k-fold split for cross validation
-        subset_size = math.floor(len(train_list) / flags.fold)
-
         random_list = random.sample(range(len(train_list)), len(train_list))
-        random_indice_lists = [random_list[i * subset_size : (i + 1) * subset_size] for i in range(flags.fold)]
+
+        eval_indice_list = random_list[:flags.eval]
+        eval_sample_list = [train_list[index] for index in eval_indice_list]
+
+        # k-fold split for cross validation
+        train_len = len(train_list) - flags.eval
+        subset_size = math.floor(train_len / flags.fold)
+
+        train_indice_list = random_list[flags.eval:]
+        random_indice_lists = [train_indice_list[i * subset_size : (i + 1) * subset_size] for i in range(flags.fold)]
 
         val_sample_lists = []
         for random_indices in random_indice_lists:
@@ -247,9 +242,11 @@ if __name__ == '__main__':
     else:
         random_list = random.sample(range(len(train_list)), len(train_list))
 
-        val_indice_list = random_list[:flags.val]
-        train_indice_list = random_list[flags.val:]
+        eval_indice_list = random_list[:flags.eval]
+        val_indice_list = random_list[flags.eval:(flags.eval + flags.val)]
+        train_indice_list = random_list[(flags.eval + flags.val):]
 
+        eval_sample_list = [train_list[index] for index in eval_indice_list]
         val_sample_list = [train_list[index] for index in val_indice_list]
         train_sample_list = [train_list[index] for index in train_indice_list]
 
@@ -272,18 +269,14 @@ if __name__ == '__main__':
         )
 
     # eval
-    if os.path.exists(eval_path):
-        eval_list = os.listdir(eval_path)
-        eval_list = [filename.split('.')[0] for filename in eval_list]
-
-        convert(
-            os.path.join('{}'.format(flags.tag), 'rsna-eval.csv'),
-            eval_list,
-            anno_df,
-            class_df,
-            eval_path,
-            flags.classification
-        )
+    convert(
+        os.path.join('{}'.format(flags.tag), 'rsna-eval.csv'),
+        eval_sample_list,
+        anno_df,
+        class_df,
+        train_path,
+        flags.classification
+    )
 
     # test
     if os.path.exists(test_path):
