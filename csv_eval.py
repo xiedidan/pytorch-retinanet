@@ -3,6 +3,7 @@ from __future__ import print_function
 import numpy as np
 import json
 import os
+from datetime import datetime
 
 import torch
 from metric import map_iou
@@ -416,7 +417,7 @@ def evaluate_rsna(
 def export(
     generator,
     retinanet,
-    score_threshold=0.05,
+    score_thresholds=[0.05],
     max_detections=100,
     image_path=None,
     csv_path=None,
@@ -434,41 +435,48 @@ def export(
         A dict mapping class names to mAP scores.
     """
 
-    # gather all detections
+    csv_dir = os.path.dirname(csv_path)
+    if not os.path.exists(csv_dir):
+        os.mkdir(csv_dir)
 
-    all_detections     = _get_detections(
-        generator,
-        retinanet,
-        score_threshold=score_threshold,
-        max_detections=max_detections,
-        save_path=image_path
+    now = datetime.now()
+
+    # gather all detections and annotations
+    scores_list, labels_list, boxes_list = _get_predictions(generator, retinanet)
+    detections_list = _get_scan_detections(
+        scores_list,
+        labels_list,
+        boxes_list,
+        score_thresholds=score_thresholds,
+        max_detections=max_detections
     )
 
-    with open(csv_path, 'w') as file:
-        file.write("patientId,PredictionString\n")
+    for index, all_detections in enumerate(detections_list):
+        with open(csv_path.format(now.strftime('%Y-%m-%d_%H:%M:%S'), score_thresholds[index]), 'w') as file:
+            file.write("patientId,PredictionString\n")
 
-        for i in range(len(generator)):
-            patientId = os.path.basename(generator.image_names[i]).split('.')[0]
-            csv_line = '{},'.format(patientId)
+            for i in range(len(generator)):
+                patientId = os.path.basename(generator.image_names[i]).split('.')[0]
+                csv_line = '{},'.format(patientId)
 
-            detections = all_detections[i][0] # specific to rsna
-            for d in detections:
-                # d is a_pt + score
-                left = d[0] + (1 - scale) * (d[2] - d[0]) / 2
-                upper = d[1] + (1 - scale) * (d[3] - d[1]) / 2
+                detections = all_detections[i][0] # specific to rsna
+                for d in detections:
+                    # d is a_pt + score
+                    left = d[0] + (1 - scale) * (d[2] - d[0]) / 2
+                    upper = d[1] + (1 - scale) * (d[3] - d[1]) / 2
 
-                w = (d[2] - d[0]) * scale
-                h = (d[3] - d[1]) * scale
-                
+                    w = (d[2] - d[0]) * scale
+                    h = (d[3] - d[1]) * scale
+                    
 
-                d_element = '{} {} {} {} {}'.format(
-                    d[4],
-                    int(left),
-                    int(upper),
-                    int(w),
-                    int(h)
-                )
-                csv_line = '{} {}'.format(csv_line, d_element)
+                    d_element = '{} {} {} {} {}'.format(
+                        d[4],
+                        int(left),
+                        int(upper),
+                        int(w),
+                        int(h)
+                    )
+                    csv_line = '{} {}'.format(csv_line, d_element)
 
-            csv_line = '{}\n'.format(csv_line)
-            file.write(csv_line)
+                csv_line = '{}\n'.format(csv_line)
+                file.write(csv_line)

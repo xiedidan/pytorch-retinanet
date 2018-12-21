@@ -108,15 +108,15 @@ def main(args=None):
 
 	# Create the model
 	if parser.depth == 18:
-		retinanet = model.resnet18(num_classes=dataset_val.num_classes(), pretrained=True)
+		retinanet = model.resnet18(num_classes=dataset_val.num_classes(), pretrained=True, global_flag=False)
 	elif parser.depth == 34:
-		retinanet = model.resnet34(num_classes=dataset_val.num_classes(), pretrained=True)
+		retinanet = model.resnet34(num_classes=dataset_val.num_classes(), pretrained=True, global_flag=False)
 	elif parser.depth == 50:
-		retinanet = model.resnet50(num_classes=dataset_val.num_classes(), pretrained=True)
+		retinanet = model.resnet50(num_classes=dataset_val.num_classes(), pretrained=True, global_flag=False)
 	elif parser.depth == 101:
-		retinanet = model.resnet101(num_classes=dataset_val.num_classes(), pretrained=True)
+		retinanet = model.resnet101(num_classes=dataset_val.num_classes(), pretrained=True, global_flag=False)
 	elif parser.depth == 152:
-		retinanet = model.resnet152(num_classes=dataset_val.num_classes(), pretrained=True)
+		retinanet = model.resnet152(num_classes=dataset_val.num_classes(), pretrained=True, global_flag=False)
 	else:
 		raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')
 
@@ -135,7 +135,7 @@ def main(args=None):
 			model_file = '{}_{}.pth'.format(parser.checkpoint, epoch)
 			print('Evaluating model: {}'.format(model_file))
 
-			retinanet.load_state_dict(torch.load(model_file), False)
+			retinanet.load_state_dict(torch.load(model_file), True)
 
 			ap_list, youden_list, sensitivity_list, specificity_list = csv_eval.evaluate_rsna(
 				dataset_val,

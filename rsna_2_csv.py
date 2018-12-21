@@ -12,6 +12,8 @@ import cv2
 from tqdm import tqdm
 import pandas as pd
 import SimpleITK as sitk
+from skmultilearn.model_selection import iterative_train_test_split
+from skmultilearn.model_selection import IterativeStratification
 
 # constants
 RSNA_LABEL_FILE = 'stage_2_train_labels.csv'
@@ -145,34 +147,12 @@ def convert_test(filename, sample_list, anno_df, class_df, root_path, classifica
         for line in lines:
             file.write(line)
 
-def pick_randomly(root, src_path, dest_path, count):
-    # mk output dir
-    sample_path = os.path.join(root, dest_path)
-    if not os.path.exists(sample_path):
-        os.mkdir(sample_path)
-
-    # list source files
-    file_path = os.path.join(root, src_path)
-    file_list = os.listdir(file_path)
-
-    # pick randomly
-    sample_list = random.sample(file_list, count)
-
-    # move
-    for filename in sample_list:
-        src_file = os.path.join(root, src_path, filename)
-        dest_file = os.path.join(root, dest_path, filename)
-        shutil.move(src_file, dest_file)
-
-    return sample_list
-
 # argparser
 parser = argparse.ArgumentParser(description='RSNA dataset convertor (to CSV dataset)')
 parser.add_argument('--root', default='./rsna-pneumonia-detection-challenge/', help='dataset root path')
 parser.add_argument('--tag', default='rsna', help='output subpath')
 parser.add_argument('--fold', default=4, type=int, help='sub-sets of k-fold for training, set 1 to disable k-fold')
-parser.add_argument('--val', default=1000, type=int, help='samples for online validation if k-fold is disabled')
-parser.add_argument('--eval', default=1000, type=int, help='samples for local evaluation')
+parser.add_argument('--val', default=0.05, type=float, help='ratio for online validation if k-fold is disabled')
 parser.add_argument('--classification', default=False, action='store_true', help='whether global classification is added to network (deprecated)')
 flags = parser.parse_args()
 
@@ -183,12 +163,52 @@ if __name__ == '__main__':
     anno_path = os.path.join(flags.root, RSNA_LABEL_FILE)
     class_path = os.path.join(flags.root, RSNA_CLASS_FILE)
 
+    train_path = os.path.join(flags.root, 'train')
+    test_path = os.path.join(flags.root, 'test')
+
     anno_df = pd.read_csv(anno_path)
     class_df = pd.read_csv(class_path)
 
-    # re-list train - val / eval / test images
-    train_path = os.path.join(flags.root, 'train')
-    test_path = os.path.join(flags.root, 'test')
+    patient_list = list(class_df['patientId'])
+    class_list = list(class_df['class'])
+
+    if flags.fold == 1:
+        patient_train_indexes, _, patient_val_indexes, _ = iterative_train_test_split(
+            patient_list,
+            class_list,
+            test_size = flags.val_ratio
+        )
+
+        convert(
+            os.path.join('{}'.format(flags.tag), 'rsna-train.csv'),
+            [patient_list[i] for i in patient_train_indexes],
+            anno_df,
+            class_df,
+            train_path,
+            flags.classification
+        )
+
+        convert(
+            os.path.join('{}'.format(flags.tag), 'rsna-val.csv'),
+            [patient_list[i] for i in patient_val_indexes],
+            anno_df,
+            class_df,
+            train_path,
+            flags.classification
+        )
+    else:
+        val_sample_lists = [[] for i in range(flags.fold)]
+        k_fold = IterativeStratification(n_splits=flags.fold, order=1)
+
+        for fold_indexes in k_fold.split(patient_list, class_list):
+            for fold, index in enumerate(fold_indexes):
+                val_sample_lists[fold].append(patient_list[index])
+
+        for val_sample_list in val_sample_lists:
+            for i in range(flags.fold):
+                
+
+        
 
     train_list = os.listdir(train_path)
     train_list = [filename.split('.')[0] for filename in train_list]

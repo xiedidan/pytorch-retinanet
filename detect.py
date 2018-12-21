@@ -37,6 +37,7 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'detect'
 LOG_PATH = './log'
 
+SCORE_THRESHOLDS = [0.01, 0.03, 0.05, 0.07, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.275, 0.3, 0.325, 0.35]
 MAX_DETECTIONS = 3
 
 def main(args=None):
@@ -48,7 +49,6 @@ def main(args=None):
 	parser.add_argument('--csv_classes', help='Path to file containing class list (see readme)')
 	parser.add_argument('--csv_val', help='Path to file containing validation annotations (optional, see readme)')
 	
-	parser.add_argument('--score', help='Score threshold', type=float, default=0.1)
 	parser.add_argument('--scale', help='Resize scale', type=float, default=0.9)
 	
 	parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=50)
@@ -107,17 +107,17 @@ def main(args=None):
 
 	# Create the model
 	if parser.depth == 18:
-		retinanet = model.resnet18(num_classes=dataset_val.num_classes(), pretrained=True)
+		retinanet = model.resnet18(num_classes=dataset_val.num_classes(), pretrained=True, global_flag=False)
 	elif parser.depth == 34:
-		retinanet = model.resnet34(num_classes=dataset_val.num_classes(), pretrained=True)
+		retinanet = model.resnet34(num_classes=dataset_val.num_classes(), pretrained=True, global_flag=False)
 	elif parser.depth == 50:
-		retinanet = model.resnet50(num_classes=dataset_val.num_classes(), pretrained=True)
+		retinanet = model.resnet50(num_classes=dataset_val.num_classes(), pretrained=True, global_flag=False)
 	elif parser.depth == 101:
-		retinanet = model.resnet101(num_classes=dataset_val.num_classes(), pretrained=True)
+		retinanet = model.resnet101(num_classes=dataset_val.num_classes(), pretrained=True, global_flag=False)
 	elif parser.depth == 152:
-		retinanet = model.resnet152(num_classes=dataset_val.num_classes(), pretrained=True)
+		retinanet = model.resnet152(num_classes=dataset_val.num_classes(), pretrained=True, global_flag=False)
 	else:
-		raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')		
+		raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')	
 
 	use_gpu = True
 
@@ -149,9 +149,9 @@ def main(args=None):
 	csv_eval.export(
 		dataset_val,
 		retinanet,
-		score_threshold=parser.score,
+		score_thresholds=SCORE_THRESHOLDS,
 		max_detections=MAX_DETECTIONS,
-		csv_path='submission_{}.csv'.format(now.strftime('%Y-%m-%d_%H:%M:%S')),
+		csv_path='./submission/submission_{}_{}.csv',
 		scale=parser.scale
 	)
 
