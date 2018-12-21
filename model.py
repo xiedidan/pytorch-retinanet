@@ -175,7 +175,7 @@ class ClassificationModel(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, num_classes, block, layers):
+    def __init__(self, num_classes, block, layers, global_flag):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
@@ -223,15 +223,17 @@ class ResNet(nn.Module):
 
         self.freeze_bn()
 
-        self.classifier = nn.Sequential(
-            nn.Linear(fpn_sizes[3], CLASSIFIER_FEATURES),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(CLASSIFIER_FEATURES, CLASSIFIER_FEATURES),
-            nn.ReLU(True),
-            nn.Dropout(),
-            nn.Linear(CLASSIFIER_FEATURES, CLASSIFIER_NUM_CLASSES)
-        )
+        self.global_flag = global_flag
+        if self.global_flag:
+            self.classifier = nn.Sequential(
+                nn.Linear(fpn_sizes[3], CLASSIFIER_FEATURES),
+                nn.ReLU(True),
+                nn.Dropout(),
+                nn.Linear(CLASSIFIER_FEATURES, CLASSIFIER_FEATURES),
+                nn.ReLU(True),
+                nn.Dropout(),
+                nn.Linear(CLASSIFIER_FEATURES, CLASSIFIER_NUM_CLASSES)
+            )
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
@@ -258,7 +260,10 @@ class ResNet(nn.Module):
 
     def forward(self, inputs):
         if self.training:
-            img_batch, annotations, global_classes = inputs
+            if self.global_flag:
+                img_batch, annotations, global_classes = inputs
+            else:
+                img_batch, annotations = inputs
         else:
             img_batch = inputs
 
@@ -281,18 +286,26 @@ class ResNet(nn.Module):
         anchors = self.anchors(img_batch)
 
         if self.training:
-            global_feature = nn.functional.avg_pool2d(x4, x4.shape[-1])
-            global_feature = global_feature.reshape(img_batch.shape[0], -1)
-            global_classification = self.classifier(global_feature)
+            if self.global_flag:
+                global_feature = nn.functional.avg_pool2d(x4, x4.shape[-1])
+                global_feature = global_feature.reshape(img_batch.shape[0], -1)
+                global_classification = self.classifier(global_feature)
 
-            return self.focalLoss(
-                classification,
-                regression,
-                anchors,
-                annotations,
-                global_classification,
-                global_classes
-            )
+                return self.focalLoss(
+                    classification,
+                    regression,
+                    anchors,
+                    annotations,
+                    global_classification,
+                    global_classes
+                )
+            else:
+                return self.focalLoss(
+                    classification,
+                    regression,
+                    anchors,
+                    annotations
+                )
         else:
             transformed_anchors = self.regressBoxes(anchors, regression)
             transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)

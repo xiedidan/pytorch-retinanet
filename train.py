@@ -7,6 +7,7 @@ import collections
 import sys
 import logging
 from datetime import datetime
+import traceback
 
 import numpy as np
 from tqdm import tqdm
@@ -130,17 +131,22 @@ def main(args=None):
 		sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=4, drop_last=False)
 		dataloader_val = DataLoader(dataset_val, num_workers=3, collate_fn=collater, batch_sampler=sampler_val)
 
+	if parser.global_class is None:
+		global_flag = False
+	else:
+		global_flag = True
+
 	# Create the model
 	if parser.depth == 18:
-		retinanet = model.resnet18(num_classes=dataset_train.num_classes(), pretrained=True)
+		retinanet = model.resnet18(num_classes=dataset_train.num_classes(), pretrained=True, global_flag=global_flag)
 	elif parser.depth == 34:
-		retinanet = model.resnet34(num_classes=dataset_train.num_classes(), pretrained=True)
+		retinanet = model.resnet34(num_classes=dataset_train.num_classes(), pretrained=True, global_flag=global_flag)
 	elif parser.depth == 50:
-		retinanet = model.resnet50(num_classes=dataset_train.num_classes(), pretrained=True)
+		retinanet = model.resnet50(num_classes=dataset_train.num_classes(), pretrained=True, global_flag=global_flag)
 	elif parser.depth == 101:
-		retinanet = model.resnet101(num_classes=dataset_train.num_classes(), pretrained=True)
+		retinanet = model.resnet101(num_classes=dataset_train.num_classes(), pretrained=True, global_flag=global_flag)
 	elif parser.depth == 152:
-		retinanet = model.resnet152(num_classes=dataset_train.num_classes(), pretrained=True)
+		retinanet = model.resnet152(num_classes=dataset_train.num_classes(), pretrained=True, global_flag=global_flag)
 	else:
 		raise ValueError('Unsupported model depth, must be one of 18, 34, 50, 101, 152')		
 
@@ -189,20 +195,31 @@ def main(args=None):
 				try:
 					optimizer.zero_grad()
 
-					classification_loss, regression_loss, global_loss = retinanet([data['img'].cuda().float(), data['annot'], data['cls']])
+					if global_flag:
+						classification_loss, regression_loss, global_loss = retinanet([data['img'].cuda().float(), data['annot'], data['cls']])
 
-					classification_loss = classification_loss.mean()
-					regression_loss = regression_loss.mean()
-					global_loss = global_loss.mean()
+						classification_loss = classification_loss.mean()
+						regression_loss = regression_loss.mean()
+						global_loss = global_loss.mean()
 
-					loss = classification_loss + regression_loss + global_loss
+						loss = classification_loss + regression_loss + global_loss
+					else:
+						classification_loss, regression_loss = retinanet([data['img'].cuda().float(), data['annot']])
+
+						classification_loss = classification_loss.mean()
+						regression_loss = regression_loss.mean()
+
+						loss = classification_loss + regression_loss
+
+						global_loss = torch.zeros(1)
 					
 					if bool(loss == 0):
 						continue
 
 					loss.backward()
 
-					torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 0.1)
+					torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 1)
+					# torch.nn.utils.clip_grad_norm_(retinanet.parameters(), 0.1)
 
 					optimizer.step()
 
@@ -226,7 +243,7 @@ def main(args=None):
 					del regression_loss
 					del global_loss
 				except Exception as e:
-					print(e)
+					print(traceback.format_exc())
 					logger.error(e)
 					continue
 				finally:

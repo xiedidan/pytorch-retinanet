@@ -24,7 +24,7 @@ def calc_iou(a, b):
 class FocalLoss(nn.Module):
     #def __init__(self):
 
-    def forward(self, classifications, regressions, anchors, annotations, global_classifications, global_classes):
+    def forward(self, classifications, regressions, anchors, annotations, global_classifications=None, global_classes=None):
         alpha = 0.25
         gamma = 2.0
         batch_size = classifications.shape[0]
@@ -39,21 +39,24 @@ class FocalLoss(nn.Module):
         anchor_ctr_y   = anchor[:, 1] + 0.5 * anchor_heights
 
         # compute global classification focal loss
-        P = nn.functional.softmax(global_classifications)
+        if global_classifications is not None:
+            P = nn.functional.softmax(global_classifications)
 
-        class_mask = torch.zeros(global_classifications.shape).to(device=global_classifications.device)
-        ids = global_classes.view(-1, 1)
-        class_mask.scatter_(1, ids.detach(), 1.)
+            class_mask = torch.zeros(global_classifications.shape).to(device=global_classifications.device)
+            ids = global_classes.view(-1, 1)
+            class_mask.scatter_(1, ids.detach(), 1.)
 
-        # alpha for Lung Opacity (2), 1 - alpha for others
-        alpha_factor = torch.ones(global_classes.shape).cuda() * alpha
-        alpha_factor = torch.where(torch.eq(global_classes, 2.), alpha_factor, 1. - alpha_factor)
+            # alpha for Lung Opacity (2), 1 - alpha for others
+            alpha_factor = torch.ones(global_classes.shape).cuda() * alpha
+            alpha_factor = torch.where(torch.eq(global_classes, 2.), alpha_factor, 1. - alpha_factor)
 
-        probs = (P * class_mask).sum(1).reshape(-1, 1)
-        log_p = probs.log()
+            probs = (P * class_mask).sum(1).reshape(-1, 1)
+            log_p = probs.log()
 
-        global_loss = -alpha_factor * torch.pow((1 - probs), gamma) * log_p
-        global_avg_loss = global_loss.mean()
+            global_loss = -alpha_factor * torch.pow((1 - probs), gamma) * log_p
+            global_avg_loss = global_loss.mean()
+        else:
+            global_avg_loss = 0.
 
         for j in range(batch_size):
 
@@ -152,7 +155,10 @@ class FocalLoss(nn.Module):
                 regression_losses.append(regression_loss.mean())
             else:
                 regression_losses.append(torch.tensor(0).float().cuda())
-
-        return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True), global_avg_loss
+        
+        if global_classifications is not None:
+            return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True), global_avg_loss
+        else:
+            return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
     
