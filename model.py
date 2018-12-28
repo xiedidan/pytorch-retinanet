@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch
 import math
 import time
+import numpy as np
 import torch.utils.model_zoo as model_zoo
 from utils import BasicBlock, Bottleneck, BBoxTransform, ClipBoxes
 from anchors import Anchors
@@ -11,6 +12,7 @@ from lib.nms.pth_nms import pth_nms
 CLASSIFIER_FEATURES = 4096
 CLASSIFIER_NUM_CLASSES = 3
 
+NMS_THRESHOLD = 0.
 SCORE_THRESHOLD = 0.01
 
 def nms(dets, thresh):
@@ -321,7 +323,7 @@ class ResNet(nn.Module):
             transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
             scores = scores[:, scores_over_thresh, :]
 
-            anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.)
+            anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], NMS_THRESHOLD)
 
             nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
 
@@ -432,7 +434,18 @@ class ResNet_Ensemble(nn.Module):
         self.models = models
 
         for model in self.models:
-            model.eval()
+            model['model'].eval()
+
+        scores = [model['score'] for model in self.models]
+        weights = [model['weight'] for model in self.models]
+        weighted_scores = []
+
+        for score, weight in zip(scores, weights):
+            weighted_score = score * weight
+            weighted_scores.append(weighted_score)
+
+        self.score_threshold = np.mean(weighted_scores)
+        self.weights = torch.tensor(weights).cuda() / len(self.models)
 
         self.regressBoxes = BBoxTransform()
         self.clipBoxes = ClipBoxes()
@@ -441,7 +454,7 @@ class ResNet_Ensemble(nn.Module):
         model_count = len(self.models)
         img_batch = inputs
 
-        results = [model(img_batch) for model in self.models]
+        results = [model['model'](img_batch) for model in self.models]
 
         regressions = [result[0] for result in results]
         classifications = torch.stack([result[1] for result in results]) # [MODEL_COUNT, BATCH_SIZE, NUM_ANCHOR, CLASSES]
@@ -451,10 +464,13 @@ class ResNet_Ensemble(nn.Module):
 
         # ensemble results
         classifications = classifications.permute(1, 2, 3, 0)
-        classification = classifications.mean(dim=-1)
+        # [BATCH_SIZE, NUM_ANCHOR, CLASSES, MODEL_COUNT] dot [MODEL_COUNT, 1] = [BATCH_SIZE, NUM_ANCHOR, CLASSES]
+        classification = torch.matmul(classifications, self.weights)
+        # classification = classifications.mean(dim=-1)
 
         transformed_anchors_list = transformed_anchors_list.permute(1, 2, 3, 0)
-        transformed_anchors = transformed_anchors_list.mean(dim=-1)
+        transformed_anchors = torch.matmul(transformed_anchors_list, self.weights)
+        # transformed_anchors = transformed_anchors_list.mean(dim=-1)
 
         # ok, go on
         transformed_anchors = self.clipBoxes(transformed_anchors, img_batch)
@@ -471,30 +487,34 @@ class ResNet_Ensemble(nn.Module):
         transformed_anchors = transformed_anchors[:, scores_over_thresh, :]
         scores = scores[:, scores_over_thresh, :]
 
-        anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], 0.5)
+        anchors_nms_idx = nms(torch.cat([transformed_anchors, scores], dim=2)[0, :, :], NMS_THRESHOLD)
 
         nms_scores, nms_class = classification[0, anchors_nms_idx, :].max(dim=1)
 
         return [nms_scores, nms_class, transformed_anchors[0, anchors_nms_idx, :]]
 
-def resnet101_ensemble(num_classes, checkpoint_list, **kwargs):
+def resnet_ensemble(num_classes, checkpoint_list, **kwargs):
     """Constructs a ResNet-101 model.
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     models = []
 
-    for checkpoint in checkpoint_list:
-        print(checkpoint)
-        model = ResNet_Part(num_classes, Bottleneck, [3, 4, 23, 3], **kwargs)
+    for i, checkpoint in checkpoint_list.iterrows():
+        print('Loading {}...'.format(checkpoint['filename']))
+
+        if checkpoint['backbone'] == 'resnet-101':
+            model = ResNet_Part(num_classes, Bottleneck, [3, 4, 23, 3], **kwargs)
+        elif checkpoint['backbone'] == 'resnet-50':
+            model = ResNet_Part(num_classes, Bottleneck, [3, 4, 6, 3], **kwargs)
 
         model = model.cuda()
         model = torch.nn.DataParallel(model).cuda()
         model.training = False
 
-        model.load_state_dict(torch.load(checkpoint), False)
+        model.load_state_dict(torch.load(checkpoint['filename']), False)
 
-        models.append(model)
+        models.append({'model': model, 'score': checkpoint['score'], 'weight': checkpoint['weight']})
 
     return ResNet_Ensemble(models)
 

@@ -39,7 +39,7 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'train-val'
 LOG_PATH = './log'
 
-SCORE_THRESHOLDS = [0.01, 0.03, 0.05, 0.07, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.275, 0.3, 0.325, 0.35]
+SCORE_THRESHOLDS = [0.01, 0.02, 0.03, 0.04, 0.045, 0.05, 0.055, 0.06, 0.065, 0.07, 0.075, 0.08, 0.085, 0.09, 0.095, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15]
 MAX_DETECTIONS = 3
 
 global_class_mapping = {
@@ -58,6 +58,8 @@ def main(args=None):
 	parser.add_argument('--csv_classes', help='Path to file containing class list (see readme)')
 	parser.add_argument('--csv_val', help='Path to file containing validation annotations (optional, see readme)')
 	parser.add_argument('--global_class', help='Path to file containing global class list (see readme)')
+	parser.add_argument('--batch_size', help='Batch size', type=int, default=4)
+	parser.add_argument('--image_size', help='Image size', type=int, default=608)
 
 	parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=50)
 	parser.add_argument('--epochs', help='Number of epochs', type=int, default=100)
@@ -112,24 +114,28 @@ def main(args=None):
 			class_list=parser.csv_classes,
 			global_class_file=parser.global_class,
 			global_classes=global_class_mapping,
-			transform=transforms.Compose([Normalizer(), Augmenter(), Resizer()])
+			transform=transforms.Compose([Normalizer(), Augmenter(), Resizer(parser.image_size)])
 		)
 
 		if parser.csv_val is None:
 			dataset_val = None
 			print('No validation annotations provided.')
 		else:
-			dataset_val = CSVDataset(train_file=parser.csv_val, class_list=parser.csv_classes, transform=transforms.Compose([Normalizer(), Resizer()]))
+			dataset_val = CSVDataset(
+				train_file=parser.csv_val,
+				class_list=parser.csv_classes,
+				transform=transforms.Compose([Normalizer(), Resizer(parser.image_size)])
+			)
 
 	else:
 		raise ValueError('Dataset type not understood (must be csv or coco), exiting.')
 
-	sampler = AspectRatioBasedSampler(dataset_train, batch_size=4, drop_last=False)
-	dataloader_train = DataLoader(dataset_train, num_workers=3, collate_fn=collater, batch_sampler=sampler)
+	sampler = AspectRatioBasedSampler(dataset_train, batch_size=parser.batch_size, drop_last=False)
+	dataloader_train = DataLoader(dataset_train, num_workers=4, collate_fn=collater, batch_sampler=sampler)
 
 	if dataset_val is not None:
-		sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=4, drop_last=False)
-		dataloader_val = DataLoader(dataset_val, num_workers=3, collate_fn=collater, batch_sampler=sampler_val)
+		sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=parser.batch_size, drop_last=False)
+		dataloader_val = DataLoader(dataset_val, num_workers=4, collate_fn=collater, batch_sampler=sampler_val)
 
 	if parser.global_class is None:
 		global_flag = False

@@ -11,6 +11,7 @@ import shutil
 import cv2
 from tqdm import tqdm
 import pandas as pd
+import numpy as np
 import SimpleITK as sitk
 from skmultilearn.model_selection import iterative_train_test_split
 from skmultilearn.model_selection import IterativeStratification
@@ -18,9 +19,10 @@ from skmultilearn.model_selection import IterativeStratification
 # constants
 RSNA_LABEL_FILE = 'stage_2_train_labels.csv'
 RSNA_CLASS_FILE = 'stage_2_detailed_class_info.csv'
-GLOBAL_CLASS_MAPPING = {
-    'No Lung Opacity / Not Normal': 0,
-    'Lung Opacity': 1
+global_class_mapping = {
+	'Normal': 0,
+	'No Lung Opacity / Not Normal': 1,
+	'Lung Opacity': 2
 }
 CLASS_MAPPING = {
     'Lung Opacity': 0
@@ -169,8 +171,14 @@ if __name__ == '__main__':
     anno_df = pd.read_csv(anno_path)
     class_df = pd.read_csv(class_path)
 
-    patient_list = list(class_df['patientId'])
-    class_list = list(class_df['class'])
+    print('Getting unique patient class from {}...'.format(RSNA_CLASS_FILE))
+    
+    patient_list = set(class_df['patientId'])
+    patient_list = list(patient_list)
+    class_list = [(class_df[class_df['patientId'] == patientId]).iloc[0]['class'] for patientId in patient_list]
+
+    class_list = [[global_class_mapping[class_name]] for class_name in class_list]
+    class_list = np.array(class_list)
 
     if flags.fold == 1:
         patient_train_indexes, _, patient_val_indexes, _ = iterative_train_test_split(
@@ -197,50 +205,20 @@ if __name__ == '__main__':
             flags.classification
         )
     else:
-        val_sample_lists = [[] for i in range(flags.fold)]
+        # create stratified lists
         k_fold = IterativeStratification(n_splits=flags.fold, order=1)
 
-        for fold_indexes in k_fold.split(patient_list, class_list):
-            for fold, index in enumerate(fold_indexes):
-                val_sample_lists[fold].append(patient_list[index])
-
-        for val_sample_list in val_sample_lists:
-            for i in range(flags.fold):
-                
-
-        
-
-    train_list = os.listdir(train_path)
-    train_list = [filename.split('.')[0] for filename in train_list]
-
-    if flags.fold > 1:
-        random_list = random.sample(range(len(train_list)), len(train_list))
-
-        eval_indice_list = random_list[:flags.eval]
-        eval_sample_list = [train_list[index] for index in eval_indice_list]
-
-        # k-fold split for cross validation
-        train_len = len(train_list) - flags.eval
-        subset_size = math.floor(train_len / flags.fold)
-
-        train_indice_list = random_list[flags.eval:]
-        random_indice_lists = [train_indice_list[i * subset_size : (i + 1) * subset_size] for i in range(flags.fold)]
-
-        val_sample_lists = []
-        for random_indices in random_indice_lists:
-            val_sample_list = [train_list[index] for index in random_indices]
-            val_sample_lists.append(val_sample_list)
-
         train_sample_lists = []
-        for i in range(flags.fold):
-            train_sample_list = []
+        val_sample_lists = []
 
-            for j in range(flags.fold):
-                if j != i:
-                    train_sample_list.extend(val_sample_lists[j])
+        for train_index_list, val_index_list in k_fold.split(patient_list, class_list):
+            train_sample_list = [patient_list[i] for i in train_index_list]
+            val_sample_list = [patient_list[i] for i in val_index_list]
 
             train_sample_lists.append(train_sample_list)
+            val_sample_lists.append(val_sample_list)
 
+        # write train and val sets
         for i in range(flags.fold):
             convert(
                 os.path.join('{}'.format(flags.tag), 'rsna-train-{}.csv'.format(i)),
@@ -259,44 +237,6 @@ if __name__ == '__main__':
                 train_path,
                 flags.classification
             )
-    else:
-        random_list = random.sample(range(len(train_list)), len(train_list))
-
-        eval_indice_list = random_list[:flags.eval]
-        val_indice_list = random_list[flags.eval:(flags.eval + flags.val)]
-        train_indice_list = random_list[(flags.eval + flags.val):]
-
-        eval_sample_list = [train_list[index] for index in eval_indice_list]
-        val_sample_list = [train_list[index] for index in val_indice_list]
-        train_sample_list = [train_list[index] for index in train_indice_list]
-
-        convert(
-            os.path.join('{}'.format(flags.tag), 'rsna-train.csv'),
-            train_sample_list,
-            anno_df,
-            class_df,
-            train_path,
-            flags.classification
-        )
-
-        convert(
-            os.path.join('{}'.format(flags.tag), 'rsna-val.csv'),
-            val_sample_list,
-            anno_df,
-            class_df,
-            train_path,
-            flags.classification
-        )
-
-    # eval
-    convert(
-        os.path.join('{}'.format(flags.tag), 'rsna-eval.csv'),
-        eval_sample_list,
-        anno_df,
-        class_df,
-        train_path,
-        flags.classification
-    )
 
     # test
     if os.path.exists(test_path):

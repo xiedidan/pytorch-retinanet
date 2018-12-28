@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 
 import torch
@@ -37,7 +38,7 @@ LOG_SIZE = 512 * 1024 * 1024 # 512M
 LOGGER_NAME = 'detect'
 LOG_PATH = './log'
 
-SCORE_THRESHOLDS = [0.01, 0.03, 0.05, 0.07, 0.1, 0.125, 0.15, 0.175, 0.2, 0.225, 0.25, 0.275, 0.3, 0.325, 0.35]
+SCORE_THRESHOLDS = [0.01, 0.02, 0.03, 0.04, 0.045, 0.05, 0.055, 0.06, 0.065, 0.07, 0.075, 0.08, 0.085, 0.09, 0.095, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15]
 MAX_DETECTIONS = 3
 
 def main(args=None):
@@ -48,6 +49,7 @@ def main(args=None):
 	parser.add_argument('--coco_path', help='Path to COCO directory')
 	parser.add_argument('--csv_classes', help='Path to file containing class list (see readme)')
 	parser.add_argument('--csv_val', help='Path to file containing validation annotations (optional, see readme)')
+	parser.add_argument('--image_size', help='Image size', type=int, default=608)
 	
 	parser.add_argument('--scale', help='Resize scale', type=float, default=0.9)
 	
@@ -59,6 +61,8 @@ def main(args=None):
 
 	parser.add_argument('--log_prefix', default='eval', help='log file path = "./log/{}-{}.log".format(log_prefix, now)')
 	parser.add_argument('--log_level', default=logging.DEBUG, type=int, help='log level')
+
+	parser.add_argument('--tag', default='resnet', help='custom tag for submission filename')
 
 	parser = parser.parse_args(args)
 
@@ -96,7 +100,7 @@ def main(args=None):
 			dataset_val = None
 			print('No validation annotations provided.')
 		else:
-			dataset_val = CSVDataset(train_file=parser.csv_val, class_list=parser.csv_classes, transform=transforms.Compose([Normalizer(), Resizer()]))
+			dataset_val = CSVDataset(train_file=parser.csv_val, class_list=parser.csv_classes, transform=transforms.Compose([Normalizer(), Resizer(size=parser.image_size)]))
 
 	else:
 		raise ValueError('Dataset type not understood (must be csv or coco), exiting.')
@@ -126,20 +130,22 @@ def main(args=None):
 
 	if parser.ensemble:
 		# read ensemble list file
-		with open(parser.ensemble_file, 'r') as ensemble_file:
-			ensemble_list = ensemble_file.readlines()
-			ensemble_list = [filename.strip() for filename in ensemble_list]
+		ensemble_df = pd.read_csv(parser.ensemble_file)
 		
-		logger.info('Ensembling {} checkpoints:'.format(len(ensemble_list)))
-		for filename in ensemble_list:
-			logger.info('{}'.format(filename))
+		logger.info('Ensembling {} checkpoints:'.format(len(ensemble_df)))
+		for i, row in ensemble_df.iterrows():
+			logger.info('{}'.format(row['filename']))
 
-		print('Ensembling {} checkpoints...'.format(len(ensemble_list)))
+		print('Ensembling {} checkpoints...'.format(len(ensemble_df)))
 
-		retinanet = model.resnet101_ensemble(
+		retinanet = model.resnet_ensemble(
 			num_classes=dataset_val.num_classes(),
-			checkpoint_list=ensemble_list
+			checkpoint_list=ensemble_df
 		)
+		ensemble_score = retinanet.score_threshold
+		SCORE_THRESHOLDS.append(ensemble_score)
+
+		print('Ensemble score threshold: {}, weights: {}'.format(ensemble_score, retinanet.weights))
 	else:
 		retinanet = torch.nn.DataParallel(retinanet).cuda()
 		retinanet.training = False
@@ -151,8 +157,9 @@ def main(args=None):
 		retinanet,
 		score_thresholds=SCORE_THRESHOLDS,
 		max_detections=MAX_DETECTIONS,
-		csv_path='./submission/submission_{}_{}.csv',
-		scale=parser.scale
+		csv_path='./submission/submission_{}_{}_{}.csv',
+		scale=parser.scale,
+		tag=parser.tag
 	)
 
 if __name__ == '__main__':

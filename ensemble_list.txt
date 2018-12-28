@@ -1,7 +1,8 @@
-/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold0/retinanet_5.pth
-/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold0/retinanet_7.pth
-/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold1/retinanet_5.pth
-/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold2/retinanet_7.pth
-/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold2/retinanet_9.pth
-/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold3/retinanet_6.pth
-/home/voyager/project/pytorch-retinanet/resnet_101_baseline_fold3/retinanet_7.pth
+filename,backbone,score
+/home/voyager/project/pytorch-retinanet/resnet_50_baseline/retinanet_14.pth,resnet-50,0.05
+/home/voyager/project/pytorch-retinanet/resnet_50_baseline/retinanet_7.pth,resnet-50,0.05
+/home/voyager/project/pytorch-retinanet/resnet_50_baseline/retinanet_18.pth,resnet-50,0.05
+/home/voyager/project/pytorch-retinanet/resnet_101_baseline/retinanet_9.pth,resnet-101,0.07
+/home/voyager/project/pytorch-retinanet/resnet_101_baseline/retinanet_14.pth,resnet-101,0.07
+/home/voyager/project/pytorch-retinanet/resnet_101_baseline/retinanet_16.pth,resnet-101,0.07
+/home/voyager/project/pytorch-retinanet/retinanet_4.pth,resnet-101,0.05

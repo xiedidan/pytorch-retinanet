@@ -372,8 +372,13 @@ def collater(data):
 
 class Resizer(object):
     """Convert ndarrays in sample to Tensors."""
+    def __init__(self, size):
+        self.size = size
 
-    def __call__(self, sample, min_side=608, max_side=1024):
+    def __call__(self, sample):
+        min_side = self.size
+        max_side = self.size
+
         image, annots = sample['img'], sample['annot']
 
         rows, cols, cns = image.shape
@@ -407,9 +412,10 @@ class Resizer(object):
 
 class Augmenter(object):
     """Convert ndarrays in sample to Tensors."""
+    def __init__(self, advanced_augmentation=None):
+        self.advanced_augmentation = advanced_augmentation
 
     def __call__(self, sample, flip_x=0.5):
-
         if np.random.rand() < flip_x:
             image, annots = sample['img'], sample['annot']
             image = image[:, ::-1, :]
@@ -425,6 +431,14 @@ class Augmenter(object):
             annots[:, 2] = cols - x_tmp
 
             sample = {'img': image, 'annot': annots}
+
+        if self.advanced_augmentation is not None:
+            image, annots = sample['img'], sample['annot']
+
+            augment_det = self.advanced_augmentation.to_deterministic()
+            image = augment_det.augment_image(image)
+
+            # TODO : ...
 
         return sample
 

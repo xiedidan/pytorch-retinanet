@@ -421,7 +421,8 @@ def export(
     max_detections=100,
     image_path=None,
     csv_path=None,
-    scale=0.9
+    scale=0.9,
+    tag='resnet'
 ):
     """ Export a given dataset using a given retinanet.
     # Arguments
@@ -452,7 +453,7 @@ def export(
     )
 
     for index, all_detections in enumerate(detections_list):
-        with open(csv_path.format(now.strftime('%Y-%m-%d_%H:%M:%S'), score_thresholds[index]), 'w') as file:
+        with open(csv_path.format(tag, score_thresholds[index], scale), 'w') as file:
             file.write("patientId,PredictionString\n")
 
             for i in range(len(generator)):
